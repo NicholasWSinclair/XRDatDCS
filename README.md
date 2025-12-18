@@ -1,16 +1,18 @@
-# pyXRDatDCS - X-ray Scattering GUI
+# XRDatDCS
 
 ## Overview
-**pyXRDatDCS** is a tool for generating powder X-ray Diffraction (XRD) patterns based on spectra available at the Dynamic Compression Sector (DCS). It allows users to simulate XRD images for ideal powder samples, considering various experimental parameters, detector configurations, and material properties.
+**XRDatDCS** is a tool for generating powder X-ray Diffraction (XRD) patterns based on spectra available at the Dynamic Compression Sector (DCS). The goal of this application is to provide a planning tool for users to decide on appropriate sample thicknesses, x-ray energies, detector distances, etc. It allows users to simulate XRD images for ideal powder samples, considering various experimental parameters, detector configurations, and material properties. While most real materials are not ideal powders, the predicted intensities are reasonable estimates for experiment planning purposes, unless your target is composed of very large crystals or very highly oriented crystals. For example, the intensity from rolled metal foils is very textured, but the azimuthally integrated intensity from this program is usually within a factor of 2-3 of each peak (some will be higher than predicted, some lower). 
 
-The goal of this application is to provide a planning tool for users to decide on appropriate sample thicknesses, x-ray energies, detector distances, etc. 
 
 ## Key Features
 
 ### 1. Simulation & Analysis
    ** Powder XRD Simulation: Generates 2D XRD patterns for ideal powders.
-   ** Calculated Spectra: Using srwpy.srwlib or oasys_srw.srwlib
+   
+   ** Calculated Spectra: Using srwpy.srwlib 
+   
    ** Polar and azimuthal-dependent attenuation from the sample and from Post-Sample Filters
+   
    ** Debye-Waller Factors: Uses tabulated B-factors for elemental crystals (Peng et al.). If not elemental crystal, it can approximate them for CIF files from the materials project (i.e. with elasticity data) or the user can specify the factors for each element. Temperature is assumed to be 300K
    
 
@@ -33,7 +35,7 @@ The goal of this application is to provide a planning tool for users to decide o
     *   Search and download from the **Crystallography Open Database (COD)**.
 *   **Spectrum Handling**:
     *   **Load Spectrum**: Import energy spectra from `.csv` or `.h5` files.
-    *   **Calculate Spectrum**: Built-in tools to generate spectra based on experimental parameters.
+    *   **Calculate Spectrum**: Built-in tool to generate spectra based on experimental parameters.
 
 ### 4. Data Management
 *   **Save Results**: Export simulated images as **TIFF** files.
@@ -50,24 +52,26 @@ SingleCrystalPeaks_Manual_WithStrain.py is similarly a GUI for visualizing singl
 ### Prerequisites
 *   Conda installation (e.g. miniconda or anaconda)
 
-### Running the Application
-To run the application, simply execute the provided batch file:
-
-```batch
-pyXRDatDCS.bat
-```
-
-This script will:
-1.  Map the necessary network drive (`Z:` to `\\DCS100\Internal`) if not already connected.
-2.  Set up the environment variables.
-3.  Launch the `XrayScatteringGUI.py` application using the configured Python environment (`env_pyXRD1`).
-
-### Running without the .bat (Linux/macOS)
-Alternatively, you can just make the environment manually
+### Installation
+Create the environment:
 
 conda env create --file environment.yml      (create environment from yml)
-conda activate env_pyXRD1      				(activate it)
-python .\XrayScatteringGUI.py   			(run it)
+conda activate env_pyXRD0      				(activate it)
+python .\XrayScatteringGUI.py   			(run the image simulation GUI)
+
+to run this later: 
+On Windows: Open anaconda powershell. Otherwise, open a terminal.
+>> conda activate env_pyXRD0
+>> cd <install folder>
+>> python .\XrayScatteringGUI.py
+
+On windows, if you want to make a shortcut on your desktop for this: 
+1) find your environment's exe file:
+   >> python -c "import sys; print(sys.executable)"
+2) make a shortcut to that exe file with the .py file passed as an argument.
+   e.g. make a shortcut to: C:\Users\username\AppData\Local\miniconda3\envs\env_pyXRD0\python.exe "C:\YourDocuments\code\XRDatDCS\XrayScatteringGUI.py"
+There's an .ico file for the program in the \ui folder.
+
 
 ## Dependencies
 *   **GUI**: PyQt5
