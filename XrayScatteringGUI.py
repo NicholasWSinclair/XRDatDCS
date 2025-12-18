@@ -25,6 +25,8 @@ nicholas.sinclair@wsu.edu
 import sys
 import numpy as np
 import csv
+from matplotlib import use
+use("QtAgg")
 
 from collections import defaultdict
 from PyQt5.QtWidgets import (
@@ -54,8 +56,7 @@ from scipy.fft import fft2, ifft2
 from scipy.signal import find_peaks
 
 from matplotlib.figure import Figure
-from matplotlib import use
-use("Qt5Agg")  # Use PyQt5 backend
+
 from ase.io import read
 from xoppylib.scattering_functions.xoppy_calc_f0 import xoppy_calc_f0 
 import spglib
@@ -3133,7 +3134,7 @@ class XRayScatteringApp(QMainWindow):
                 mpr.materials.summary.search(material_ids=["mp-149"])
             return True
         except Exception as e:
-            print(f"API Key Validation Failed: {e}")
+            print(f"API Key Validation Failed. Add a valid API key using the menu bar. 'CIF Sources' -> 'Set Materials Project API Key'.")
             return False
 
     def check_mp_api_key(self):
