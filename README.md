@@ -1,7 +1,7 @@
-# pyXRDatDCS - X-ray Scattering GUI
+# XRDatDCS - X-ray Scattering GUI
 
 ## Overview
-**pyXRDatDCS** is a tool for generating powder X-ray Diffraction (XRD) patterns based on spectra available at the Dynamic Compression Sector (DCS). It allows users to simulate XRD images for ideal powder samples, considering various experimental parameters, detector configurations, and material properties.
+**XRDatDCS** is a tool for generating powder X-ray Diffraction (XRD) patterns based on spectra available at the Dynamic Compression Sector (DCS). It allows users to simulate XRD images for ideal powder samples, considering various experimental parameters, detector configurations, and material properties.
 
 The goal of this application is to provide a planning tool for users to decide on appropriate sample thicknesses, x-ray energies, detector distances, etc. 
 
@@ -50,24 +50,12 @@ SingleCrystalPeaks_Manual_WithStrain.py is similarly a GUI for visualizing singl
 ### Prerequisites
 *   Conda installation (e.g. miniconda or anaconda)
 
-### Running the Application
-To run the application, simply execute the provided batch file:
-
-```batch
-pyXRDatDCS.bat
-```
-
-This script will:
-1.  Map the necessary network drive (`Z:` to `\\DCS100\Internal`) if not already connected.
-2.  Set up the environment variables.
-3.  Launch the `XrayScatteringGUI.py` application using the configured Python environment (`env_pyXRD1`).
-
-### Running without the .bat (Linux/macOS)
-Alternatively, you can just make the environment manually
+### Installation
+Create the environment:
 
 conda env create --file environment.yml      (create environment from yml)
-conda activate env_pyXRD1      				(activate it)
-python .\XrayScatteringGUI.py   			(run it)
+conda activate env_pyXRD0      				(activate it)
+python .\XrayScatteringGUI.py   			(run the image simulation GUI)
 
 ## Dependencies
 *   **GUI**: PyQt5
