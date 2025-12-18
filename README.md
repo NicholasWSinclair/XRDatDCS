@@ -70,7 +70,7 @@ On windows, if you want to make a shortcut on your desktop for this:
    >> python -c "import sys; print(sys.executable)"
 2) make a shortcut to that exe file with the .py file passed as an argument.
    e.g. make a shortcut to: C:\Users\username\AppData\Local\miniconda3\envs\env_pyXRD0\python.exe "C:\YourDocuments\code\XRDatDCS\XrayScatteringGUI.py"
-
+There's an .ico file for the program in the \ui folder.
 
 
 ## Dependencies
