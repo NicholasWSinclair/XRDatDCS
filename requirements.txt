@@ -1,0 +1,17 @@
+numpy
+PyQt5
+ase
+matplotlib
+scipy
+mp_api
+spglib
+xoppylib
+xraylib
+pandas
+scikit-learn
+pillow
+pyFAI
+beautifulsoup4
+wget
+srwpy
+
