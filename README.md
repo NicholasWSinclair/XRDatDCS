@@ -65,7 +65,9 @@ Create the environment:
 to run this later: 
 On Windows: Open anaconda powershell. Otherwise, open a terminal.
 > conda activate env_pyXRD0
+
 > cd <install folder>
+
 > python .\XrayScatteringGUI.py
 
 On windows, if you want to make a shortcut on your desktop for this: 
