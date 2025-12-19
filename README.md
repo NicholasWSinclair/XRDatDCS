@@ -76,7 +76,7 @@ On Windows: Open anaconda powershell. Otherwise, open a terminal.
 
 On windows, if you want to make a shortcut on your desktop for this: 
 1) find your environment's exe file:
-   >> python -c "import sys; print(sys.executable)"
+   > python -c "import sys; print(sys.executable)"
 2) make a shortcut to that exe file with the .py file passed as an argument.
    e.g. make a shortcut to:
    > C:\Users\username\AppData\Local\miniconda3\envs\env_pyXRD0\python.exe "C:\YourDocuments\code\XRDatDCS\XrayScatteringGUI.py"
