@@ -70,7 +70,7 @@ to run this later:
 On Windows: Open anaconda powershell. Otherwise, open a terminal.
 > conda activate env_pyXRD0
 
-> cd <install folder>
+> cd *Your install folder*
 
 > python .\XrayScatteringGUI.py
 
