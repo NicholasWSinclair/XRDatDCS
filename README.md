@@ -56,8 +56,11 @@ SingleCrystalPeaks_Manual_WithStrain.py is similarly a GUI for visualizing singl
 Create the environment:
 
 > conda env create --file environment.yml      (create environment from yml)
+
 > conda activate env_pyXRD0      				(activate it)
+
 > python .\XrayScatteringGUI.py   			(run the image simulation GUI)
+
 
 to run this later: 
 On Windows: Open anaconda powershell. Otherwise, open a terminal.
