@@ -1,7 +1,11 @@
 # XRDatDCS
 
 ## Overview
-**XRDatDCS** is a tool for generating powder X-ray Diffraction (XRD) patterns based on spectra available at the Dynamic Compression Sector (DCS). The goal of this application is to provide a planning tool for users to decide on appropriate sample thicknesses, x-ray energies, detector distances, etc. It allows users to simulate XRD images for ideal powder samples, considering various experimental parameters, detector configurations, and material properties. While most real materials are not ideal powders, the predicted intensities are reasonable estimates for experiment planning purposes, unless your target is composed of very large crystals or very highly oriented crystals. For example, the intensity from rolled metal foils is very textured, but the azimuthally integrated intensity from this program is usually within a factor of 2-3 of each peak (some will be higher than predicted, some lower). 
+**XRDatDCS** is a tool for generating powder X-ray Diffraction (XRD) patterns based on simulated x-ray spectra at the Dynamic Compression Sector (DCS). 
+
+The goal of this application is to provide a planning tool for users to decide on appropriate sample thicknesses, x-ray energies, detector distances, etc. It allows users to simulate XRD images for ideal powder samples, considering various experimental parameters, detector configurations, and material properties. 
+
+While most real materials are not ideal powders, the predicted intensities are reasonable estimates for experiment planning purposes, unless your target is composed of very large crystals or very highly oriented crystals. For example, the intensity from rolled metal foils is very textured, but the azimuthally integrated intensity from this program is usually within a factor of 2-3 of each peak (some will be higher than predicted, some lower). 
 
 
 ## Key Features
