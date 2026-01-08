@@ -26,7 +26,7 @@ import sys
 import numpy as np
 import csv
 from matplotlib import use
-use("Qt5Agg")
+use("QtAgg")
 
 from collections import defaultdict
 from PyQt5.QtWidgets import (
@@ -43,7 +43,10 @@ from functools import reduce
 from emmet.core.summary import HasProps
 from PyQt5.QtGui import QPalette, QColor, QIcon
 from PyQt5.QtCore import Qt, QTimer, QSettings
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
+try:
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
+except ImportError:
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
 from scipy.integrate import quad
 import math
 from PIL import Image
