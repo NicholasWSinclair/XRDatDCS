@@ -26,7 +26,7 @@ import sys
 import numpy as np
 import csv
 from matplotlib import use
-use("QtAgg")
+use("Qt5Agg")
 
 from collections import defaultdict
 from PyQt5.QtWidgets import (
@@ -102,7 +102,7 @@ from lib import GeometryVisualizer
 
 # importlib.reload(PostSampleFilterGUI)
 # importlib.reload(GeometryVisualizer)
-# from time import time
+from time import time
 
 hc = 12398.4198 # electron volts * angstrom
 r0 = 2.81794032E-5 # angstroms
@@ -1704,6 +1704,30 @@ class XRayScatteringApp(QMainWindow):
         Phi_rad = np.arccos(pixelsizeinmm*(imagecolnumbers_x-xcenterpix)/distancefromcentermat) # array of phi values at each pixel center
         return Twothetas_rad, Phi_rad, rmat
     
+    def calcthetaphi_eachPixel_1x1(self,Mx,Ny,pixelsizeinmm, xcenterpix, ycenterpix, detdistinmm):
+        """
+        Calculate geometry for the center of each pixel only (optimization over 9x1 version).
+        
+        Returns:
+            Twothetas_rad
+            Phi_rad
+            rmat
+        """
+        imagecolnumbers_x = np.tile(np.arange(Mx).reshape(1, -1), (Ny, 1))
+        imagerownumbers_y = np.tile(np.arange(Ny).reshape(-1, 1), (1, Mx))
+        
+        distancefromcentermat = pixelsizeinmm*np.sqrt(np.square(imagecolnumbers_x-xcenterpix) + np.square(imagerownumbers_y-ycenterpix))
+        distancefromcentermat[distancefromcentermat<1e-9] = 1e-9
+        
+        # In the 9x1 version, rmat is set only if dx==0 and dy==0, which is this case.
+        rmat = distancefromcentermat
+
+        Twothetas_rad = np.arctan(distancefromcentermat/detdistinmm)
+        Phi_rad = np.arccos(pixelsizeinmm*(imagecolnumbers_x-xcenterpix)/distancefromcentermat) # array of phi values at each pixel center
+
+        return Twothetas_rad, Phi_rad, rmat
+
+
     def calcthetaphi_eachPixel_9x1(self,Mx,Ny,pixelsizeinmm, xcenterpix, ycenterpix, detdistinmm):
         imagecolnumbers_x = np.tile(np.arange(Mx).reshape(1, -1), (Ny, 1))
         imagerownumbers_y = np.tile(np.arange(Ny).reshape(-1, 1), (1, Mx))
@@ -2500,11 +2524,20 @@ class XRayScatteringApp(QMainWindow):
             print('No Spectrum Specified')
             self.result_label.setText('No Spectrum Specified') 
             return
+
+        t0 = time()
+
         #find spectral peaks
         x = self.spec_EeV
         y = self.spec_WpereV
         dx = x[1]-x[0]
         self.num_peaks, self.peak_locs = find_peaks_in_data(x, y, height=0.001, distance=int(4000/dx))
+
+        # Define EnergyBetweenPeaks for harmonic width calculation
+        if self.num_peaks > 1:
+            EnergyBetweenPeaks = abs(self.peak_locs[1]-self.peak_locs[0])
+        else: 
+            EnergyBetweenPeaks = (np.max(x)-np.min(x))
         highestEpeak = np.max(self.peak_locs)
         density = calculate_density(self.structure_data)
         self.attenfactorinmm_list = get_attenlengthinmm(self.structure_data.get_chemical_formula(),density, self.peak_locs)
@@ -2597,16 +2630,11 @@ class XRayScatteringApp(QMainWindow):
 
 
 
-        self.TwoTheta_rad_9x1, self.Phi_Rad_9x1, self.weights_simpsonOneThird_9x1,self.rmat = self.calcthetaphi_eachPixel_9x1(Mx,Ny,pixelsizeinmm, xcenterpix, ycenterpix, detdistinmm)
+        self.TwoTheta_rad, self.Phi_Rad, self.rmat = self.calcthetaphi_eachPixel_1x1(Mx,Ny,pixelsizeinmm, xcenterpix, ycenterpix, detdistinmm)
         self.dPhi = pixelsizeinmm/self.rmat
         self.dPhi[self.dPhi>2*np.pi]=2*np.pi
         self.dtwotheta = pixelsizeinmm/detdistinmm/(1+np.square(self.rmat/detdistinmm))  
-        # self.TwoTheta_rad, self.Phi_Rad,,self.rmat = self.calcthetaphi_eachPixel(Mx,Ny,pixelsizeinmm, xcenterpix, ycenterpix, detdistinmm)
-        # self.TwoTheta_rad_MxN = self.TwoTheta_rad_9x1[4]
-        self.maxtwotheta = np.max(self.TwoTheta_rad_9x1[4])
-        # self.dPhi = np.max(self.Phi_Rad_9x1,axis=0) - np.min(self.Phi_Rad_9x1,axis=0)
-        # self.dtwotheta = np.max(self.TwoTheta_rad_9x1,axis=0) - np.min(self.TwoTheta_rad_9x1,axis=0)
-        # self.plot_image(self.dtwotheta)
+        self.maxtwotheta = np.max(self.TwoTheta_rad)
         
         self.Ntotimage = np.zeros((self.num_peaks,Ny,Mx))
         
@@ -2615,7 +2643,10 @@ class XRayScatteringApp(QMainWindow):
         else:
             polarized = 0
             
-        LPFactor = calcLPFactor(self.TwoTheta_rad_9x1[4],PolarizedFlag=polarized,phi_angle_rad=self.Phi_Rad_9x1[4]) 
+        LPFactor = calcLPFactor(self.TwoTheta_rad,PolarizedFlag=polarized,phi_angle_rad=self.Phi_Rad) 
+        gamma,beta,boolmask_infattenuation = AttenuationAngleFactors(Alpharadians, self.TwoTheta_rad, self.Phi_Rad)
+        attenuation_params = (gamma,beta,boolmask_infattenuation)
+
         self.progress_bar.setValue(0)
         totalrefldone = 0
         totvalidrefl = len(self.validreflections)
@@ -2638,19 +2669,45 @@ class XRayScatteringApp(QMainWindow):
                         B_list.append(B)
             Bdict = {'el_list':el_list,'B_list':B_list}
 
+            # Prepare common params for energy calculation
+            energy_params = {
+                'peak_locs': self.peak_locs,
+                'attenfactorinmm_list': self.attenfactorinmm_list,
+                'x': x,
+                'y': y,
+                'EnergyBetweenPeaks': EnergyBetweenPeaks
+            }
+
+            # Strategy: Parallelize over Energies (Harmonics).
+            # This allows computing the Attenuation Map (heavy) only ONCE per energy thread.
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = []
-                for refl in self.validreflections:
-                    futures.append(executor.submit(self.calcXRDimage, refl, elements, f0_values, pixelsizeinmm, detdistinmm, thicknessinmm, Alpharadians, LPFactor, volume, Bdict, enableDW))
-                
-                for future in concurrent.futures.as_completed(futures):
+                total_energies_done = 0
+
+                # Better loop to track indices:
+                future_to_idx = {
+                    executor.submit(
+                        self.calc_single_energy_contribution, 
+                        energy_idx, 
+                        energy_params, 
+                        self.validreflections, 
+                        elements, f0_values, pixelsizeinmm, detdistinmm, thicknessinmm, Alpharadians, 
+                        attenuation_params, LPFactor, volume, Bdict, enableDW
+                    ): energy_idx for energy_idx in range(self.num_peaks)
+                }
+
+                for future in concurrent.futures.as_completed(future_to_idx):
+                    idx = future_to_idx[future]
                     try:
-                        newimg = future.result()
-                        self.Ntotimage += newimg
-                        totalrefldone +=1
-                        update_progress(totalrefldone, totvalidrefl)
+                        energy_image = future.result()
+                        self.Ntotimage[idx] += energy_image
+                        
+                        total_energies_done += 1
+                        # Update progress based on energies instead of reflections?
+                        # Or just pulse it?
+                        update_progress(total_energies_done, self.num_peaks)
+                        
                     except Exception as e:
-                        print(f"Error in thread: {e}")
+                        print(f"Error in energy thread {idx}: {e}")
             
         if self.enableFluorescence.checkState()==2 or self.onlyfluorescence.checkState()==2:
             self.calcfluorescenceimage()
@@ -2664,6 +2721,8 @@ class XRayScatteringApp(QMainWindow):
         # 
         # for ij in range(4):
         #     self.showimageinnewwindow(self.Ntotimage[ij])
+        t1 = time()
+        print(f"Time to generate XRD image: {t1-t0} seconds")
         
     def generateXRDImageWithNoise(self):
 
@@ -3233,8 +3292,59 @@ class XRayScatteringApp(QMainWindow):
             self.reportmessage('Enter Valid Value > 0')
             widget.setText('???')
 
+    def calc_single_energy_contribution(self, energy_idx, energy_params, reflections_chunk, elements, f0_values, pixelsizeinmm, detdistinmm, thicknessinmm, Alpharadians, attenuation_params, LPFactor, volume, Bdict, enableDW):
+        
+        peak_energy = energy_params['peak_locs'][energy_idx]
+        attenlengthinmm = energy_params['attenfactorinmm_list'][energy_idx]
+        x = energy_params['x']
+        y = energy_params['y']
+        EnergyBetweenPeaks = energy_params['EnergyBetweenPeaks']
+        
+        gamma, beta, boolmask_infattenuation = attenuation_params
+        
+        # 1. Pre-calculate attenuation map for this energy (ONCE)
+        effectivelength_Angstrom_Map = AttenuationFactorAngledBeam2(attenlengthinmm*1000,thicknessinmm*1000,Alpharadians, self.TwoTheta_rad,self.Phi_Rad,gamma,beta,boolmask_infattenuation)
+        
+        minE = peak_energy - EnergyBetweenPeaks/2.1
+        maxE = peak_energy + EnergyBetweenPeaks/2.1
+        wavelength = hc/peak_energy 
+        
+        harmonic_E = x[(x>minE)&(x<maxE)] 
+        harmonic_dPdE = y[(x>minE)&(x<maxE)] 
+        
+        scatted_image_sum = np.zeros_like(self.TwoTheta_rad)
+        
+        # 2. Iterate reflections for this energy
+        for validreflection in reflections_chunk:
+            h,k,l = validreflection['hkl']
+            multiplicity=validreflection['multiplicity']
+            d_spacing = validreflection['dspacing']
+            
+            min_2th_rad = 2*np.arcsin(hc/2/d_spacing/maxE)
+            
+            if min_2th_rad < self.maxtwotheta:
+                if enableDW:
+                    F_hkl = calculate_structure_factor_withDebyeWaller(self.structure_data, h, k, l, peak_energy, f0_values,Bdict)  
+                else:
+                    F_hkl = calculate_structure_factor(self.structure_data, h, k, l, peak_energy, f0_values)      
                 
-    def calcXRDimage(self, validreflection,elements,f0_values,pixelsizeinmm,detdistinmm,thicknessinmm,Alpharadians,LPFactor, volume, Bdict, enableDW):
+                G = (r0**2)*(wavelength**3)*multiplicity*(F_hkl**2)/4/(volume**2) 
+                
+                Wper2th_rad_interp, NperSecPer2th_rad_interp = convertspectrumRangeto2th(harmonic_E,harmonic_dPdE,d_spacing)
+                
+                NperSecper2th_rad = NperSecPer2th_rad_interp(self.TwoTheta_rad)
+                
+                Nper2thetaperphi_rad = NperSecper2th_rad / 2/np.pi / self.bunchfreq * JouleIneV
+                
+                ScatteredImageSingle = Nper2thetaperphi_rad * G * LPFactor * effectivelength_Angstrom_Map * self.dtwotheta * self.dPhi
+                ScatteredImageSingle[ScatteredImageSingle<0] = 0
+                
+                scatted_image_sum += ScatteredImageSingle
+                
+        return scatted_image_sum
+
+                
+    def calcXRDimage(self, validreflection,elements,f0_values,pixelsizeinmm,detdistinmm,thicknessinmm,Alpharadians, attenuation_params, LPFactor, volume, Bdict, enableDW):
         
         '''
         Strategy:
@@ -3248,6 +3358,7 @@ class XRayScatteringApp(QMainWindow):
         multiplicity=validreflection['multiplicity']
         d_spacing =validreflection['dspacing']
         
+        gamma,beta,boolmask_infattenuation = attenuation_params
 
         #find spectral peaks
         x = self.spec_EeV
@@ -3260,7 +3371,7 @@ class XRayScatteringApp(QMainWindow):
         
         ScatteredImage = []
         
-        gamma,beta,boolmask_infattenuation  = AttenuationAngleFactors(Alpharadians, self.TwoTheta_rad_9x1[4], self.Phi_Rad_9x1[4])
+        # gamma,beta,boolmask_infattenuation  = AttenuationAngleFactors(Alpharadians, self.TwoTheta_rad_9x1[4], self.Phi_Rad_9x1[4])
         
         for peak_energy,attenlengthinmm in zip(self.peak_locs,self.attenfactorinmm_list):
             
@@ -3273,7 +3384,7 @@ class XRayScatteringApp(QMainWindow):
             if min_2th_rad<self.maxtwotheta:
                 harmonic_E = x[(x>minE)&(x<maxE)] 
                 harmonic_dPdE = y[(x>minE)&(x<maxE)] 
-                effectivelength_Angstrom = AttenuationFactorAngledBeam2(attenlengthinmm*1000,thicknessinmm*1000,Alpharadians, self.TwoTheta_rad_9x1[4],self.Phi_Rad_9x1[4],gamma,beta,boolmask_infattenuation)
+                effectivelength_Angstrom = AttenuationFactorAngledBeam2(attenlengthinmm*1000,thicknessinmm*1000,Alpharadians, self.TwoTheta_rad,self.Phi_Rad,gamma,beta,boolmask_infattenuation)
                
                 if enableDW:
                     F_hkl = calculate_structure_factor_withDebyeWaller(self.structure_data, h, k, l, peak_energy, f0_values,Bdict)  
@@ -3285,7 +3396,7 @@ class XRayScatteringApp(QMainWindow):
 
                 Wper2th_rad_interp, NperSecPer2th_rad_interp= convertspectrumRangeto2th(harmonic_E,harmonic_dPdE,d_spacing)
                 
-                NperSecper2th_rad = NperSecPer2th_rad_interp(self.TwoTheta_rad_9x1[4])
+                NperSecper2th_rad = NperSecPer2th_rad_interp(self.TwoTheta_rad)
                 
                 # Use local variable instead of self.Nper2thetaperphi_rad
                 Nper2thetaperphi_rad = NperSecper2th_rad / 2/np.pi / self.bunchfreq * JouleIneV
