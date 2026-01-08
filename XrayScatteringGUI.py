@@ -336,6 +336,8 @@ class XRayScatteringApp(QMainWindow):
                 else:
                     checkbox.setCheckState(0)
                 hboxlayout.addWidget(checkbox)
+            else:
+                checkbox.hide()
             return checkbox
         
         def addbutton(layout,label,callback):
