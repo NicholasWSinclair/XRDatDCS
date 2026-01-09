@@ -33,6 +33,7 @@ import time
 from packaging.version import parse as parse_version
 if parse_version(np.__version__)<parse_version('2.0'):
     from numpy import trapz as trapezoid
+    np.trapz = np.trapezoid
 else:
     from numpy import trapezoid
     
