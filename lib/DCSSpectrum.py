@@ -711,9 +711,10 @@ class DCSSpectrum(QWidget):
             for l in lines[:-1]:
                 l.set(linestyle='--')
             
-        newfig.ax.set_xlabel('Energy (eV)')
-        newfig.ax.set_ylabel('Spectral Power (W/eV)')
-        newfig.ax.legend()
+        newfig.ax.set_xlabel('Energy (eV)', fontsize=8)
+        newfig.ax.set_ylabel('Spectral Power (W/eV)', fontsize=8)
+        newfig.ax.tick_params(axis='both', labelsize=8)
+        newfig.ax.legend(fontsize=8)    
         newfig.show() 
 
         
@@ -1381,11 +1382,29 @@ class ExtraFigureWindow(QMainWindow):
 
 
         self.ax = self.static_canvas.figure.subplots()
+
+        self.static_canvas.figure.subplots_adjust(right=0.95,top=0.95)
+        self.static_canvas.figure.set_facecolor('white')
+        self.static_canvas.figure.set_edgecolor('black')
+        self.ax.grid(True, which='both',ls='--',lw=0.5)
+        self.ax.set_facecolor('white')
+        self.ax.spines['bottom'].set_color('black')
+        self.ax.spines['top'].set_color('black')
+        self.ax.spines['left'].set_color('black')
+        self.ax.spines['right'].set_color('black')
+        self.ax.tick_params(axis='both', colors='black')
+        self.ax.xaxis.label.set_color('black')
+        self.ax.yaxis.label.set_color('black')      
         # self.ax.set_aspect(self.parent_obj.aspectratio)
         self.static_canvas.draw()
         
 
         
+
+        self.zoom_start_pixel = None
+        self.zoom_initial_xlim = None
+        self.zoom_initial_ylim = None
+        self.zoom_pivot = None # Initialize zoom_pivot
 
         self.highlight = None  #   highlighting rectangle
         self.start_point = None  # start point for  x-range selection
@@ -1394,73 +1413,147 @@ class ExtraFigureWindow(QMainWindow):
         def on_click(event):
             """Called when the mouse button is pressed."""
             if not self.check_panzoom_mode():
-            
+                
                 if event.inaxes != self.ax:
                     return
-                self.start_point = event.xdata   
-            
-                # remove existing highlight  
-                if self.highlight:
-                    self.highlight.remove()
-                self.highlight = self.ax.axvspan(self.start_point, self.start_point, color='yellow', alpha=0.3)
-                self.static_canvas.draw()
-        
+
+                # Left Click: Region Selection
+                if event.button == 1:
+                    self.start_point = event.xdata   
+                
+                    # remove existing highlight  
+                    if self.highlight:
+                        self.highlight.remove()
+                    self.highlight = self.ax.axvspan(self.start_point, self.start_point, color='yellow', alpha=0.3)
+                    self.static_canvas.draw()
+                
+                # Right Click: Zoom Init
+                elif event.button == 3:
+                    self.zoom_start_pixel = (event.x, event.y)
+                    self.zoom_initial_xlim = self.ax.get_xlim()
+                    self.zoom_initial_ylim = self.ax.get_ylim()
+                    self.zoom_pivot = (event.xdata, event.ydata) # Store pivot in data coordinates
+
         def on_drag(event):
-            
             if not self.check_panzoom_mode():
                 """Called when the mouse is dragged."""
     
-                if event.inaxes != self.ax or self.start_point is None:
+                if event.inaxes != self.ax:
                     return
-             
-                self.highlight.remove()
-                self.highlight = self.ax.axvspan(self.start_point, event.xdata, color='yellow', alpha=0.3)
-                self.static_canvas.draw()
-        
-        
                 
+                # Left Drag: Update Region Selection
+                if event.button == 1 and self.start_point is not None:
+                    self.highlight.remove()
+                    self.highlight = self.ax.axvspan(self.start_point, event.xdata, color='yellow', alpha=0.3)
+                    self.static_canvas.draw()
                 
+                # Right Drag: Zoom
+                elif event.button == 3 and self.zoom_start_pixel is not None:
+                    # Calculate drag distance in pixels
+                    dx_pix = event.x - self.zoom_start_pixel[0]
+                    dy_pix = event.y - self.zoom_start_pixel[1]
+                    
+                    # Define sensitivity
+                    # Using exponential scaling for smoother zoom
+                    sx = 0.99 ** dx_pix # Drag Right (Positive dx) -> Zoom In (Smaller Range)
+                    sy = 0.99 ** dy_pix # Drag Up (Positive dy) -> Zoom In (Smaller Range)
+                    
+                    # Get Initial Layout from when the right-click started
+                    x0, x1 = self.zoom_initial_xlim
+                    y0, y1 = self.zoom_initial_ylim
+                    
+                    if self.zoom_pivot and self.zoom_pivot[0] is not None and self.zoom_pivot[1] is not None:
+                        px, py = self.zoom_pivot
+                        
+                        # Calculate new limits maintaining the pivot point's relative position
+                        new_x0 = px - (px - x0) * sx
+                        new_x1 = px + (x1 - px) * sx
+                        new_y0 = py - (py - y0) * sy
+                        new_y1 = py + (y1 - py) * sy
+                        
+                        self.ax.set_xlim(new_x0, new_x1)
+                        self.ax.set_ylim(new_y0, new_y1)
+                        self.static_canvas.draw()
+
+
         def on_release(event):
             """Called when the mouse button is released."""
-            if not self.check_panzoom_mode():    
-                if self.start_point is None or event.inaxes != self.ax:
-                    return
-             
-                x_min = min(self.start_point, event.xdata)
-                x_max = max(self.start_point, event.xdata)
+            if not self.check_panzoom_mode():
                 
-                
-                if self.xdata:
-                    print(f'From {x_min:0.3f} eV to {x_max:0.3f} eV')
- 
-                    listofpowers = ''
-                    for xvec,yvec in zip(self.xdata,self.ydata):
+                # Left Click Release: Finalize Selection
+                if event.button == 1:
+                    if self.start_point is None or event.inaxes != self.ax:
+                        return
                     
-                        mask = (xvec >= x_min) & (xvec <= x_max)         
-                        x = xvec[mask]
-                        y = yvec[mask]
-                        power = trapezoid(y, x)
+                    x_min = min(self.start_point, event.xdata)
+                    x_max = max(self.start_point, event.xdata)
+                    
+                    if self.xdata:
+                        print(f'From {x_min:0.3f} eV to {x_max:0.3f} eV')
+    
+                        listofpowers = ''
+                        for xvec,yvec in zip(self.xdata,self.ydata):
                         
-                        photons_pereV_persec = y/x/(1.602e-19)
-                        photons_persec = trapezoid(photons_pereV_persec,x)
-                        photons_perbunch24bunch = trapezoid(photons_pereV_persec,x)/(271647*24)
-                        photons_perbunch48bunch = trapezoid(photons_pereV_persec,x)/(271647*48)
-                        
-                        Eperbunch_24_uJ = power/(271647*24)*1e6
-                        Eperbunch_48_uJ = power/(271647*48)*1e6
-                        # (70)/(24000)/(6.52e6)/(1.602e-19)
-                        
-                        
-                        listofpowers=listofpowers + f'{power:0.3f} W, ph/153ns: {photons_perbunch24bunch:0.2e}({Eperbunch_24_uJ:.2f} µJ), ph/77ns: {photons_perbunch48bunch:0.2e}({Eperbunch_48_uJ:.2f} µJ),'
-                    self.PowerLabel.setText(listofpowers)
-                    print(listofpowers) 
-            
-                # reset for next selection
-                self.start_point = None
- 
+                            mask = (xvec >= x_min) & (xvec <= x_max)         
+                            x = xvec[mask]
+                            y = yvec[mask]
+                            power = trapezoid(y, x)
+                            powertot = trapezoid(yvec, xvec)
+                            
+                            photons_pereV_persec = y/x/(1.602e-19)
+                            photons_perbunch24bunch = trapezoid(photons_pereV_persec,x)/(271647*24)
+                            photons_perbunch48bunch = trapezoid(photons_pereV_persec,x)/(271647*48)
+                            
+                            Eperbunch_24_uJ = power/(271647*24)*1e6
+                            Eperbunch_48_uJ = power/(271647*48)*1e6
+                            # (70)/(24000)/(6.52e6)/(1.602e-19)
+                            FractionOfTotal = power/powertot
+                            
+                            
+                            listofpowers=listofpowers + f'{power:0.3f} W, ph/153ns: {photons_perbunch24bunch:0.2e}({Eperbunch_24_uJ:.2f} µJ), ph/77ns: {photons_perbunch48bunch:0.2e}({Eperbunch_48_uJ:.2f} µJ), Fraction of Total: {FractionOfTotal:0.2f}'
+                        self.PowerLabel.setText(listofpowers)
+                        print(listofpowers) 
+                
+                    # reset for next selection
+                    self.start_point = None
+                
+                # Right Click Release
+                elif event.button == 3:
+                     self.zoom_start_pixel = None
+                     self.zoom_initial_xlim = None
+                     self.zoom_initial_ylim = None
+                     self.zoom_pivot = None
+
+        def on_scroll(event):
+            if not self.check_panzoom_mode() and event.inaxes == self.ax:
+                 # Zoom Factor
+                base_scale = 1.2
+                if event.button == 'up':
+                    scale_factor = 1/base_scale
+                else: # 'down'
+                    scale_factor = base_scale
+                
+                # Get current range
+                x0, x1 = self.ax.get_xlim()
+                y0, y1 = self.ax.get_ylim()
+                
+                # Pivot is current mouse position
+                px, py = event.xdata, event.ydata
+                
+                # Calculate new range centered on pivot
+                new_x0 = px - (px - x0) * scale_factor
+                new_x1 = px + (x1 - px) * scale_factor
+                new_y0 = py - (py - y0) * scale_factor
+                new_y1 = py + (y1 - py) * scale_factor
+                
+                self.ax.set_xlim(new_x0, new_x1)
+                self.ax.set_ylim(new_y0, new_y1)
+                self.static_canvas.draw()
+
         self.static_canvas.mpl_connect('button_press_event', on_click)
         self.static_canvas.mpl_connect('motion_notify_event', on_drag)
         self.static_canvas.mpl_connect('button_release_event', on_release)
+        self.static_canvas.mpl_connect('scroll_event', on_scroll)
         
         plt.show()
 

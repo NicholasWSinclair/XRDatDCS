@@ -24,7 +24,13 @@ nicholas.sinclair@wsu.edu
 
 import sys
 import numpy as np
+from packaging.version import parse as parse_version
+if parse_version(np.__version__)<parse_version('2.0'):
+    from numpy import trapz as trapezoid
+else:
+    from numpy import trapezoid
 import csv
+
 from matplotlib import use
 use("QtAgg")
 
@@ -59,6 +65,18 @@ from scipy.fft import fft2, ifft2
 from scipy.signal import find_peaks
 
 from matplotlib.figure import Figure
+
+# Configure matplotlib for dark theme to match application
+plt.rcParams['figure.facecolor'] = '#353535'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['savefig.facecolor'] = '#353535'
+plt.rcParams['axes.edgecolor'] = 'white'
+plt.rcParams['axes.labelcolor'] = 'white'
+plt.rcParams['xtick.color'] = 'white'
+plt.rcParams['ytick.color'] = 'white'
+plt.rcParams['text.color'] = 'black'
+plt.rcParams['grid.color'] = 'gray'
+plt.rcParams['grid.alpha'] = 0.3
 
 from ase.io import read
 from xoppylib.scattering_functions.xoppy_calc_f0 import xoppy_calc_f0 
@@ -780,7 +798,10 @@ class XRayScatteringApp(QMainWindow):
         ax.clear()
         
         ax.plot(Edomain,QElist)
+        ax.grid(True,which='both',ls='--')
         ax.plot(Edomain,DQElist)
+        ax.set_xlabel("Energy (eV)",color='white')
+        ax.set_ylabel("QE",color='white')
         self.plot_canvas_other.draw_idle()
         self.plottabs.setCurrentWidget(self.OtherPlots_Tab_GroupBox)
         
@@ -1806,9 +1827,9 @@ class XRayScatteringApp(QMainWindow):
         ax.scatter(peak_locs, [y[np.where(x == loc)[0][0]] for loc in peak_locs],
                 color='red', label='Peaks', zorder=5)
         
-        ax.set_title('Input Power Spectrum')
-        ax.set_xlabel("Energy (eV)")
-        ax.set_ylabel("dP/dE (W/eV)")
+        ax.set_title('Input Power Spectrum',color='white')
+        ax.set_xlabel("Energy (eV)",color='white')
+        ax.set_ylabel("dP/dE (W/eV)",color='white')
         ax.grid(True)
         self.plot_canvas_other.draw()
         self.plottabs.setCurrentWidget(self.OtherPlots_Tab_GroupBox)
@@ -2020,7 +2041,7 @@ class XRayScatteringApp(QMainWindow):
             harmonic_dPdE = y[(x>minE)&(x<maxE)] 
             harmonic_dNdE = harmonic_dPdE/harmonic_E
             
-            N_E = np.trapezoid(harmonic_dNdE,harmonic_E)/self.bunchfreq * JouleIneV
+            N_E = trapezoid(harmonic_dNdE,harmonic_E)/self.bunchfreq * JouleIneV
 
             
             # Loop through unique elements and calculate fluorescence
@@ -2048,8 +2069,8 @@ class XRayScatteringApp(QMainWindow):
         dE = 50
         edat,Ndat =  sum_y_within_maxsep(emissionenergies,Nemitted,dE, dE)
         edat, Ndat = (list(t) for t in zip(*sorted(zip(edat, Ndat))))
-        totalinput_N = np.trapezoid(y/x,x)/self.bunchfreq * JouleIneV
-        totalinput_E = np.trapezoid(y,x)/self.bunchfreq*1e6 # in µJ
+        totalinput_N = trapezoid(y/x,x)/self.bunchfreq * JouleIneV
+        totalinput_E = trapezoid(y,x)/self.bunchfreq*1e6 # in µJ
         totalfluor_N = np.sum(np.array(Ndat))
         totalfluor_E = np.sum(np.array(edat)*np.array(Ndat))/JouleIneV*1e6 # in µJ
         fluor_energyfraction = totalfluor_E/totalinput_E
@@ -2071,6 +2092,10 @@ class XRayScatteringApp(QMainWindow):
         x,y = fluorplot(edat,Ndat)
         self.ax_other.clear()
         self.ax_other.plot(x,y, '-')
+        self.ax_other.set_xlabel("Energy (eV)",color='white')
+        self.ax_other.set_ylabel("Intensity",color='white')
+        self.ax_other.set_title("Fluorescence",color='white')
+        self.ax_other.grid(True,which='both',ls='--')
         # self.ax.set_yscale('log')
         self.plot_canvas_other.draw()
         self.plottabs.setCurrentWidget(self.OtherPlots_Tab_GroupBox)
@@ -2331,7 +2356,7 @@ class XRayScatteringApp(QMainWindow):
             harmonic_dPdE = y[(x>minE)&(x<maxE)] 
             harmonic_dNdE = harmonic_dPdE/harmonic_E
             
-            N_E = np.trapezoid(harmonic_dNdE,harmonic_E)/self.bunchfreq * JouleIneV
+            N_E = trapezoid(harmonic_dNdE,harmonic_E)/self.bunchfreq * JouleIneV
 
             
             # Loop through unique elements and calculate fluorescence for each line
@@ -2387,8 +2412,8 @@ class XRayScatteringApp(QMainWindow):
         # energybinstot,Ndattot =  sum_y_within_maxsep(emissionenergies_tot,Nemitted_total,1000, 1000)
         
 
-        # totalinput_N = np.trapezoid(y/x,x)/self.bunchfreq * JouleIneV
-        # totalinput_E = np.trapezoid(y,x)/self.bunchfreq*1e6 # in µJ
+        # totalinput_N = trapezoid(y/x,x)/self.bunchfreq * JouleIneV
+        # totalinput_E = trapezoid(y,x)/self.bunchfreq*1e6 # in µJ
         # totalfluor_N = np.sum(np.array(Ndattot))
         # totalfluor_E = np.sum(np.array(energybinstot)*np.array(Ndattot))/JouleIneV*1e6 # in µJ
         # fluor_energyfraction = totalfluor_E/totalinput_E
@@ -2502,9 +2527,9 @@ class XRayScatteringApp(QMainWindow):
             ax.plot(angles, xrdplot, '-')
             # self.ax.plot(angles, xrdplot_tot, '-')
             
-        ax.set_title(f'XRD Intensity vs 2Θ: {self.structure_data.get_chemical_formula()}')
-        ax.set_xlabel("Two-Theta (degrees)")
-        ax.set_ylabel("XRD Intensity")
+        ax.set_title(f'XRD Intensity vs 2Θ: {self.structure_data.get_chemical_formula()}',color='white')
+        ax.set_xlabel("Two-Theta (degrees)",color='white')
+        ax.set_ylabel("XRD Intensity",color='white')
         ax.grid(True)
         self.plot_canvas_other.draw()
         
@@ -2719,6 +2744,7 @@ class XRayScatteringApp(QMainWindow):
             print(f"Parallel Section Time: {t1_para-t0_para:.4f} s")
             
         if self.enableFluorescence.checkState()==2 or self.onlyfluorescence.checkState()==2:
+            
             self.calcfluorescenceimage()
         # imgsum = np.sum(self.Ntotimage,0)
         
@@ -2837,7 +2863,7 @@ class XRayScatteringApp(QMainWindow):
         
         
         for chemformula,thickness,Density,Angle_deg in zip(self.PostSampleFilters_GroupBox.activeCompounds,self.PostSampleFilters_GroupBox.activeThicknesses, self.PostSampleFilters_GroupBox.activeDensities, self.PostSampleFilters_GroupBox.activeAngles):
-            gamma,beta,boolmask_infattenuation  = AttenuationAngleFactors(np.pi/180*Angle_deg, self.TwoTheta_rad_9x1[4], self.Phi_Rad_9x1[4])
+            gamma,beta,boolmask_infattenuation  = AttenuationAngleFactors(np.pi/180*Angle_deg, self.TwoTheta_rad, self.Phi_Rad)
             attenlength=get_attenlengthinmm_single(chemformula, Density, energy)
             img*=AttenuationFactorAngledBeam2_Filter(attenlength,thickness, gamma,beta,boolmask_infattenuation)
         return img
@@ -3270,7 +3296,9 @@ class XRayScatteringApp(QMainWindow):
         # c = cmap(1)
         self.ax_1d.clear()
         self.ax_1d.plot(twothetavals,Ivals)
-        self.ax_1d.set_xlabel(f'2{chr(952)} (deg.)')
+        self.ax_1d.grid(True,which='both',ls='--')
+        self.ax_1d.set_xlabel(f'2{chr(952)} (deg.)',color='white')
+        self.ax_1d.set_ylabel('Intensity',color='white')
         self.plot_canvas_1d.draw()
         
     # def moveGroupBoxToWindow(self,GroupBox):
@@ -4145,7 +4173,7 @@ def convertspectrumRangeto2th(spec_EeV,spec_WpereV,dspacing):
         dEd2th = hc/4/dspacing/np.sin(twothetas/2)/np.tan(twothetas/2)
         return PowerPereV*dEd2th
     
-    # print(f' E sum: {np.trapezoid(spec_WpereV,spec_EeV)}')
+    # print(f' E sum: {trapezoid(spec_WpereV,spec_EeV)}')
 
 
     minE = hc/2/dspacing
@@ -4159,7 +4187,7 @@ def convertspectrumRangeto2th(spec_EeV,spec_WpereV,dspacing):
     Wper2theta_rad = np.flip(Wper2theta_rad)
     NperSecper2theta_rad = np.flip(NperSecper2theta_rad)
     
-    # print(f'sum: {np.trapezoid(Wper2theta_rad,twothetas_spectrum)}')
+    # print(f'sum: {trapezoid(Wper2theta_rad,twothetas_spectrum)}')
     
     
     
@@ -4167,7 +4195,7 @@ def convertspectrumRangeto2th(spec_EeV,spec_WpereV,dspacing):
     Wper2th_rad_interp = interp1d(twothetas_spectrum, Wper2theta_rad, kind='cubic', fill_value=0.0, bounds_error=False)
     EquallySpaceWper2th_rad = Wper2th_rad_interp(EquallySpacedtwothvals_rad)
     NperSecPer2th_rad_interp = interp1d(twothetas_spectrum, NperSecper2theta_rad, kind='cubic', fill_value=0.0, bounds_error=False)
-    # print(f'sum: {np.trapezoid(EquallySpaceWper2th_rad,EquallySpacedtwothvals_rad)}')
+    # print(f'sum: {trapezoid(EquallySpaceWper2th_rad,EquallySpacedtwothvals_rad)}')
     
     
     
@@ -4194,6 +4222,8 @@ class ExtraFigureWindow(QMainWindow):
 
 
         self.ax = self.static_canvas.figure.subplots()
+        self.static_canvas.figure.subplots_adjust(right=0.95,top=0.95)
+        
         # self.ax.set_aspect(self.parent_obj.aspectratio)
         self.static_canvas.draw()
         
@@ -5108,6 +5138,8 @@ class Atom3DViewer(QMainWindow):
 
         # Matplotlib Figure and Canvas
         self.figure = Figure()
+        self.figure.set_facecolor('white')
+        self.figure.set_edgecolor('black')
         self.canvas = FigureCanvas(self.figure)
 
         # Central widget
@@ -5132,9 +5164,9 @@ class Atom3DViewer(QMainWindow):
             ax.scatter(x, y, z, s=300, label=symbol, alpha=0.8)  # Atom as sphere
 
         # Adjust plot
-        ax.set_xlabel("X (Å)")
-        ax.set_ylabel("Y (Å)")
-        ax.set_zlabel("Z (Å)")
+        ax.set_xlabel("X (Å)",color='black')
+        ax.set_ylabel("Y (Å)",color='black')
+        ax.set_zlabel("Z (Å)",color='black')
         ax.legend(loc='upper left', fontsize='small')
         self.canvas.draw()
 
