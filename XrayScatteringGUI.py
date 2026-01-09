@@ -105,7 +105,7 @@ from lib import GeometryVisualizer
 
 # importlib.reload(PostSampleFilterGUI)
 # importlib.reload(GeometryVisualizer)
-from time import time
+from time import time, perf_counter
 
 hc = 12398.4198 # electron volts * angstrom
 r0 = 2.81794032E-5 # angstroms
@@ -2487,7 +2487,7 @@ class XRayScatteringApp(QMainWindow):
             structure_factors_sorted = np.squeeze(np.array(structure_factors_sorted))
             hkl_sorted = np.squeeze(np.array(hkl_sorted))
             
-            XRDsignalstrengthPerLength=calcXRDsignalstrength(hkl_sorted, two_theta_sorted,structure_factors_sorted,multiplicities_sorted,1)
+            XRDsignalstrengthPerLength=_calcXRDsignalstrength(hkl_sorted, two_theta_sorted,structure_factors_sorted,multiplicities_sorted,1)
 
             instrfwhmindegrees = 180/np.pi * np.arctan(float(self.InstrFWHM_input.text())/float(self.SampleToDetDistance_input.text()))
     
@@ -2685,6 +2685,7 @@ class XRayScatteringApp(QMainWindow):
 
             # Strategy: Parallelize over Energies (Harmonics).
             # This allows computing the Attenuation Map (heavy) only ONCE per energy thread.
+            t0_para = perf_counter()
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 total_energies_done = 0
 
@@ -2713,6 +2714,8 @@ class XRayScatteringApp(QMainWindow):
                         
                     except Exception as e:
                         print(f"Error in energy thread {idx}: {e}")
+            t1_para = perf_counter()
+            print(f"Parallel Section Time: {t1_para-t0_para:.4f} s")
             
         if self.enableFluorescence.checkState()==2 or self.onlyfluorescence.checkState()==2:
             self.calcfluorescenceimage()
@@ -3299,6 +3302,8 @@ class XRayScatteringApp(QMainWindow):
 
     def calc_single_energy_contribution(self, energy_idx, energy_params, reflections_chunk, elements, f0_values, pixelsizeinmm, detdistinmm, thicknessinmm, Alpharadians, attenuation_params, LPFactor, volume, Bdict, enableDW):
         
+        # t_start = perf_counter()
+        
         peak_energy = energy_params['peak_locs'][energy_idx]
         attenlengthinmm = energy_params['attenfactorinmm_list'][energy_idx]
         x = energy_params['x']
@@ -3308,7 +3313,9 @@ class XRayScatteringApp(QMainWindow):
         gamma, beta, boolmask_infattenuation = attenuation_params
         
         # 1. Pre-calculate attenuation map for this energy (ONCE)
+        # t0_atten = perf_counter()
         effectivelength_Angstrom_Map = AttenuationFactorAngledBeam2(attenlengthinmm*1000,thicknessinmm*1000,Alpharadians, self.TwoTheta_rad,self.Phi_Rad,gamma,beta,boolmask_infattenuation)
+        # t1_atten = perf_counter()
         
         minE = peak_energy - EnergyBetweenPeaks/2.1
         maxE = peak_energy + EnergyBetweenPeaks/2.1
@@ -3320,14 +3327,38 @@ class XRayScatteringApp(QMainWindow):
         scatted_image_sum = np.zeros_like(self.TwoTheta_rad)
         
         # 2. Iterate reflections for this energy
+        # t0_refl = perf_counter()
         for validreflection in reflections_chunk:
             h,k,l = validreflection['hkl']
             multiplicity=validreflection['multiplicity']
             d_spacing = validreflection['dspacing']
             
-            min_2th_rad = 2*np.arcsin(hc/2/d_spacing/maxE)
+            # Use hc/2/d as a constant factor
+            bragg_limit_factor = hc / (2 * d_spacing)
             
+            # Check if diffraction is possible at all for maxE
+            val_min = bragg_limit_factor / maxE
+            
+            if val_min > 1.0:
+                continue # Wavelength too long for this d-spacing
+                
+            val_max = bragg_limit_factor / minE
+            if val_max > 1.0:
+                val_max = 1.0
+                
+            min_2th_rad = 2 * np.arcsin(val_min)
+            max_2th_rad = 2 * np.arcsin(val_max)
+            
+            # Only process if some part of the ring is on the detector (within max theta)
             if min_2th_rad < self.maxtwotheta:
+                
+                # Make a mask for pixels within the valid 2-theta range for this harmonic
+                # Add a small buffer to handle edge cases in interpolation or discretization
+                mask = (self.TwoTheta_rad >= min_2th_rad) & (self.TwoTheta_rad <= max_2th_rad)
+                
+                if not np.any(mask):
+                    continue
+                    
                 if enableDW:
                     F_hkl = calculate_structure_factor_withDebyeWaller(self.structure_data, h, k, l, peak_energy, f0_values,Bdict)  
                 else:
@@ -3337,14 +3368,31 @@ class XRayScatteringApp(QMainWindow):
                 
                 Wper2th_rad_interp, NperSecPer2th_rad_interp = convertspectrumRangeto2th(harmonic_E,harmonic_dPdE,d_spacing)
                 
-                NperSecper2th_rad = NperSecPer2th_rad_interp(self.TwoTheta_rad)
+                # Apply calculations only on the masked pixels
+                TwoTheta_masked = self.TwoTheta_rad[mask]
                 
-                Nper2thetaperphi_rad = NperSecper2th_rad / 2/np.pi / self.bunchfreq * JouleIneV
+                NperSecper2th_rad_masked = NperSecPer2th_rad_interp(TwoTheta_masked)
                 
-                ScatteredImageSingle = Nper2thetaperphi_rad * G * LPFactor * effectivelength_Angstrom_Map * self.dtwotheta * self.dPhi
-                ScatteredImageSingle[ScatteredImageSingle<0] = 0
+                Nper2thetaperphi_rad_masked = NperSecper2th_rad_masked / 2/np.pi / self.bunchfreq * JouleIneV
                 
-                scatted_image_sum += ScatteredImageSingle
+                # Element-wise operations on masked arrays
+                ScatteredImageSingle_masked = (
+                    Nper2thetaperphi_rad_masked * 
+                    G * 
+                    LPFactor[mask] * 
+                    effectivelength_Angstrom_Map[mask] * 
+                    self.dtwotheta[mask] * 
+                    self.dPhi[mask]
+                )
+                
+                ScatteredImageSingle_masked[ScatteredImageSingle_masked<0] = 0
+                
+                # Add to the accumulator
+                scatted_image_sum[mask] += ScatteredImageSingle_masked
+
+        # t1_refl = perf_counter()
+        
+        # print(f"Energy {energy_idx} ({peak_energy:.1f} eV): AttenMap={t1_atten-t0_atten:.4f}s, Reflections={t1_refl-t0_refl:.4f}s (n={len(reflections_chunk)})")
                 
         return scatted_image_sum
 
@@ -4566,7 +4614,7 @@ def calcLPFactor(two_theta_angles_rad,PolarizedFlag=0,phi_angle_rad=0):
         return LPFactor
 
 
-def calcXRDsignalstrength(hklvals, two_theta_angles,F_HKL,multiplicities,LPFlag=0):
+def _calcXRDsignalstrength(hklvals, two_theta_angles,F_HKL,multiplicities,LPFlag=0):
         '''LP Flag, if calculating total energy in a reflection, LPFlag = 0
         if calculating itnensity per unit length on a diffraction circle   LPFlag = 1
 
