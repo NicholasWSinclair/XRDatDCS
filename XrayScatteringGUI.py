@@ -415,12 +415,13 @@ class XRayScatteringApp(QMainWindow):
         self.matproject_checkbox.setChecked(False)
         if not self.MP_APIkeyValid:
             self.matproject_checkbox.setEnabled(False)
-            self.matproject_checkbox.setToolTip("Valid API Key not found. Please configure in 'CIF Sources' menu.")
+            self.matproject_checkbox.setToolTip("Valid API Key not found. Please configure in 'CIF Sources' menu IF you want to search Materials Project CIFs.")
         else:
-             self.matproject_checkbox.setToolTip("Fetch from Materials Project")
+             self.matproject_checkbox.setToolTip("Fetch from Materials Project IF you want to search Materials Project CIFs.")
         hsamplespecifylayout.addWidget(self.matproject_checkbox)
         self.cod_checkbox = QCheckBox('COD')
         self.cod_checkbox.setChecked(True)
+        self.cod_checkbox.setToolTip("Fetch from COD IF you want to search COD CIFs.")
         hsamplespecifylayout.addWidget(self.cod_checkbox)
         targetvlayout.addWidget(SampleGroupBox)
         targetvlayout.addWidget(self.PostSampleFilters_GroupBox)
@@ -3312,10 +3313,9 @@ class XRayScatteringApp(QMainWindow):
         
         gamma, beta, boolmask_infattenuation = attenuation_params
         
-        # 1. Pre-calculate attenuation map for this energy (ONCE)
-        # t0_atten = perf_counter()
+        # attenuation map for this energy
         effectivelength_Angstrom_Map = AttenuationFactorAngledBeam2(attenlengthinmm*1000,thicknessinmm*1000,Alpharadians, self.TwoTheta_rad,self.Phi_Rad,gamma,beta,boolmask_infattenuation)
-        # t1_atten = perf_counter()
+        
         
         minE = peak_energy - EnergyBetweenPeaks/2.1
         maxE = peak_energy + EnergyBetweenPeaks/2.1
@@ -3326,17 +3326,15 @@ class XRayScatteringApp(QMainWindow):
         
         scatted_image_sum = np.zeros_like(self.TwoTheta_rad)
         
-        # 2. Iterate reflections for this energy
-        # t0_refl = perf_counter()
+        # reflections for this energy
         for validreflection in reflections_chunk:
             h,k,l = validreflection['hkl']
             multiplicity=validreflection['multiplicity']
             d_spacing = validreflection['dspacing']
-            
-            # Use hc/2/d as a constant factor
+           
             bragg_limit_factor = hc / (2 * d_spacing)
             
-            # Check if diffraction is possible at all for maxE
+            # check if diffraction is possible at all for maxE
             val_min = bragg_limit_factor / maxE
             
             if val_min > 1.0:
@@ -3349,11 +3347,11 @@ class XRayScatteringApp(QMainWindow):
             min_2th_rad = 2 * np.arcsin(val_min)
             max_2th_rad = 2 * np.arcsin(val_max)
             
-            # Only process if some part of the ring is on the detector (within max theta)
+            # only process if some part of the ring is on the detector (within max theta)
             if min_2th_rad < self.maxtwotheta:
                 
-                # Make a mask for pixels within the valid 2-theta range for this harmonic
-                # Add a small buffer to handle edge cases in interpolation or discretization
+                # mask within the valid 2-theta range for this harmonic
+                # add a small buffer 
                 mask = (self.TwoTheta_rad >= min_2th_rad) & (self.TwoTheta_rad <= max_2th_rad)
                 
                 if not np.any(mask):
@@ -3375,7 +3373,7 @@ class XRayScatteringApp(QMainWindow):
                 
                 Nper2thetaperphi_rad_masked = NperSecper2th_rad_masked / 2/np.pi / self.bunchfreq * JouleIneV
                 
-                # Element-wise operations on masked arrays
+                # element-wise operations on masked arrays
                 ScatteredImageSingle_masked = (
                     Nper2thetaperphi_rad_masked * 
                     G * 
@@ -3387,13 +3385,9 @@ class XRayScatteringApp(QMainWindow):
                 
                 ScatteredImageSingle_masked[ScatteredImageSingle_masked<0] = 0
                 
-                # Add to the accumulator
+                # accumulate
                 scatted_image_sum[mask] += ScatteredImageSingle_masked
-
-        # t1_refl = perf_counter()
         
-        # print(f"Energy {energy_idx} ({peak_energy:.1f} eV): AttenMap={t1_atten-t0_atten:.4f}s, Reflections={t1_refl-t0_refl:.4f}s (n={len(reflections_chunk)})")
-                
         return scatted_image_sum
 
                 
@@ -3401,8 +3395,8 @@ class XRayScatteringApp(QMainWindow):
         
         '''
         Strategy:
-        0) Separate Spectrum into separate harmonics
-        1) Calc FHKL for the peak of a harmonic, then treat the entire harmonic range as having constant FHKL
+        0) separate spectrum into separate harmonics
+        1) calc FHKL for the peak of a harmonic, then treat the entire harmonic range as having constant FHKL, attenuation, etc
             this is valid away from abs. edges
         '''
         
@@ -3465,37 +3459,7 @@ class XRayScatteringApp(QMainWindow):
                 ScatteredImage.append(np.zeros_like(self.rmat))
         
         return ScatteredImage  
-    
-# class PanelPage(QWidget):
-#     def __init__(self,parentobj,hasCaxisSlider=0,hastoolbar=1):
-#         super().init()
-#         self.parent = parentobj
-#         self.init_ui()
-#     def init_ui(self):
-#         layout = QVBoxLayout()
-#         self.setLayout(layout)
-#         self.fig = Figure(figsize=(8, 6))        
-#         self.plot_canvas = FigureCanvas(self.fig)
-#         self.fig.tight_layout()
-#         if hastoolbar or hasCaxisSlider:
-#             hlayouttoolbar = QHBoxLayout()
-#             layout.addLayout(hlayouttoolbar)
-#             if hastoolbar:
-#                 self.toolbar = NavigationToolbar_sub(self.plot_canvas, self)
-#                 hlayouttoolbar.addWidget(self.toolbar)
-                
-#             if hasCaxisSlider:
-#                 hlayouttoolbar.addWidget(QLabel("ColorScale:"))
-#                 sliderlayout = QVBoxLayout()
-#                 hlayouttoolbar.addLayout(sliderlayout)
-#                 sliderlayout.addWidget(self.vmin_slider)
-#                 sliderlayout.addWidget(self.vmax_slider)
-#         layout.addWidget(self.plot_canvas)
-#         self.ax = self.plot_canvas.figure.subplots()
-        
-
-        
-    
+     
 def AziIntegrate2D(img = None,d = None,x0 = None,y0 = None,energy = None,pixsize = None):
     if img is None:
         return
@@ -3519,15 +3483,11 @@ def AziIntegrate1D_single(img = None,d = None,x0 = None,y0 = None,energy = None,
     tiltval = 0
     tiltplanerotation = 0
     lam = hc/energy * 1e-10
-    # print(lam)
     pyFAI_orientation=3
     detcustom = pyFAI.detectors.Detector(pixel1=pixsize/1e3, pixel2=pixsize/1e3,orientation=pyFAI_orientation)
-
-    # mask = 1-self.makemask(img)
     ai = AzimuthalIntegrator(detector=detcustom,wavelength=lam)
     ai.setFit2D(d, x0, y0,tilt=tiltval,tiltPlanRotation=tiltplanerotation)
-    twotheta,Ival = ai.integrate1d(img, 1000,unit="2th_deg")#,mask=mask)
-    # print(self.tempq)
+    twotheta,Ival = ai.integrate1d(img, 1000,unit="2th_deg")
     twothetavals = np.array(twotheta)
     Ivals = np.array(Ival)
     return twothetavals,Ivals
@@ -3538,7 +3498,7 @@ def get_nested_attribute(obj, attr_path):
 
     """
     try:
-        # Split the attribute path by dots and navigate the attributes
+        # split the attribute path by dots and navigate the attributes
         for attr in attr_path.split('.'):
             obj = getattr(obj, attr)
         return obj
@@ -3564,41 +3524,21 @@ def get_nested_attribute(obj, attr_path):
             #Scale Power Per eV by width of a 2theta degree 
             dEd2th = hc/4/dspacing/np.sin(twothetas/2)/np.tan(twothetas/2)
             return PowerPereV*dEd2th
-        # print('integral spectrum')
-        # print(np.trapezoid(self.spec_WpereV,self.spec_EeV))
-        
-        
-        # # plt.plot(self.spec_EeV, self.spec_WpereV)
-        # # plt.show()
-        # # plt.plot(convertEto2theta(self.spec_EeV), self.spec_WpereV)
-        # # plt.show()
+
         twothetas_spectrum = convertEto2theta(self.spec_EeV)
         Wper2thetadegree = convertdPdEtodPdtheta(twothetas_spectrum,self.spec_WpereV)
         twothetas_spectrum = np.flip(twothetas_spectrum)
         Wper2thetadegree = np.flip(Wper2thetadegree)
         
-        # EquallySpacedtwothvals = np.linspace(np.min(twothetas_spectrum), np.max(twothetas_spectrum),5000)
-        # EquallySpaceWper2thdeg = np.interp(EquallySpacedtwothvals,twothetas_spectrum,Wper2thetadegree)
-        
-        # plt.plot(self.spec_EeV, self.spec_WpereV)
-        # plt.show()
-        # plt.plot(twothetas_spectrum, Wper2thetadegree)
-        # plt.plot(EquallySpacedtwothvals, EquallySpaceWper2thdeg)
-        # plt.show()
-        
-        # print(np.trapezoid(Wper2thetadegree,twothetas_spectrum))
-        # print(np.trapezoid(EquallySpaceWper2thdeg,EquallySpacedtwothvals))
         return twothetas_spectrum, Wper2thetadegree
     
     
         
 
-
-
 class MaterialTableWidget_MatProject(QWidget):
     def __init__(self, parentobj, matlist, attributes, attributelabels,selectmethod_str='select_material_forDebyeTemp'):
         """
-        Initialize the MaterialTableWidget_MatProject.
+        This widget is used to display a list of materials from the Materials Project.
 
         Parameters:
             parentobj: The parent object whose selectedmat will be set.
