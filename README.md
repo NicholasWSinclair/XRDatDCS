@@ -86,10 +86,11 @@ There's an .ico file for the program in the \ui folder.
 
 ## Dependencies
 *   **GUI**: PyQt5
-*   **Computation**: NumPy, SciPy, XrayLib
+*   **Computation**: NumPy, SciPy, XrayLib, scikit-learn, srwpy
 *   **Plotting**: Matplotlib
 *   **Data Handling**: h5py, pandas, PIL
 *   **Crystallography**: ASE, PyFAI, Spglib
+*   **CIF Search**: mp_api, beautifulsoup4, wget
 
 ## Author
 **Nick Sinclair** (Washington State University)
