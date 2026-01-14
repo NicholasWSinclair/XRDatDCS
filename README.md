@@ -13,7 +13,7 @@ While most real materials are not ideal powders, the predicted intensities are r
 ### 1. Simulation & Analysis
    **Powder XRD Simulation**: Generates 2D XRD patterns for ideal powders.
    
-   **Calculated Spectra**: Using srwpy.srwlib 
+   **Calculated Spectra**: Uses srwpy.srwlib to calculate the x-ray spectral power generated from the DCS Undulators and transmitted by the standard beamline optics, K-B mirrors, multilayer monochromator, windows/filters. 
    
    **Attenuation**: Polar and azimuthal-dependent attenuation from the sample and from Post-Sample Filters
    
