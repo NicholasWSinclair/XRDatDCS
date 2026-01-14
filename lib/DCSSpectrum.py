@@ -30,12 +30,11 @@ import csv
 import scipy.interpolate
 import time
 
-from packaging.version import parse as parse_version
-if parse_version(np.__version__)<parse_version('2.0'):
+try: # if using numpy < 2.0
     from numpy import trapz as trapezoid
-    np.trapz = np.trapezoid
-else:
+except ImportError: # if using numpy >= 2.0, but still monkey patching for xoppylib which uses trapz
     from numpy import trapezoid
+    np.trapz = trapezoid
     
 # Local Imports -- These are in the same folder as this file
 import FilterGUI

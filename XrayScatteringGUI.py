@@ -24,11 +24,14 @@ nicholas.sinclair@wsu.edu
 
 import sys
 import numpy as np
-from packaging.version import parse as parse_version
-if parse_version(np.__version__)<parse_version('2.0'):
+
+
+try: # if using numpy < 2.0
     from numpy import trapz as trapezoid
-else:
+except ImportError: # if using numpy >= 2.0, but still monkey patching for xoppylib which uses trapz
     from numpy import trapezoid
+    np.trapz = trapezoid
+    
 import csv
 
 from matplotlib import use
