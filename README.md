@@ -11,13 +11,13 @@ While most real materials are not ideal powders, the predicted intensities are r
 ## Key Features
 
 ### 1. Simulation & Analysis
-   ** Powder XRD Simulation: Generates 2D XRD patterns for ideal powders.
+   **Powder XRD Simulation**: Generates 2D XRD patterns for ideal powders.
    
-   ** Calculated Spectra: Using srwpy.srwlib 
+   **Calculated Spectra**: Using srwpy.srwlib 
    
-   ** Polar and azimuthal-dependent attenuation from the sample and from Post-Sample Filters
+   **Attenuation**: Polar and azimuthal-dependent attenuation from the sample and from Post-Sample Filters
    
-   ** Debye-Waller Factors: Uses tabulated B-factors for elemental crystals (Peng et al.). If not elemental crystal, it can approximate them for CIF files from the materials project (i.e. with elasticity data) or the user can specify the factors for each element. Temperature is assumed to be 300K
+   **Debye-Waller Factors**: Uses tabulated B-factors for elemental crystals (Peng et al.). If not elemental crystal, it can approximate them for CIF files from the materials project (i.e. with elasticity data) or the user can specify the factors for each element. Temperature is assumed to be 300K
    
 
 ### 2. Experimental Setup
