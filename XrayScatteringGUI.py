@@ -141,6 +141,8 @@ class XRayScatteringApp(QMainWindow):
         self.subwindows = []
         self.DWBox = None
         self.ciffiletoload = ciffile
+        self.is_calculating = False
+        self.abort_simulation = False
         self.init_settings()
         self.init_ui()
         
@@ -564,7 +566,7 @@ class XRayScatteringApp(QMainWindow):
         
         # Calculate Image button
         self.calcsingle_button = QPushButton("Calculate Image", self)
-        self.calcsingle_button.clicked.connect(self.calculate_and_plot_2D)
+        self.calcsingle_button.clicked.connect(self.handle_calcsingle_button)
         ButtonLayout.addWidget(self.calcsingle_button)
         
         # Display Atom Positions button
@@ -740,6 +742,14 @@ class XRayScatteringApp(QMainWindow):
         #### Final init:
         self.makedetectorobj('makeCsIRayonix')
         
+    def handle_calcsingle_button(self):
+        if self.is_calculating:
+            self.abort_simulation = True
+            self.calcsingle_button.setText("Stopping...")
+            self.calcsingle_button.setEnabled(False) 
+        else:
+            self.calculate_and_plot_2D()
+
     # def move_groupbox_to_new_window(self,groupbox):
     #     new_window = NewWindow(groupbox)
     #     self.subwindows.append(new_window)
@@ -2543,6 +2553,19 @@ class XRayScatteringApp(QMainWindow):
         #     self.result_label.setText(f"Error during calculation: {e}")
         
     def calculate_and_plot_2D(self):
+        self.is_calculating = True
+        self.abort_simulation = False
+        self.calcsingle_button.setText("Abort Calculation")
+        QApplication.processEvents()
+
+        try:
+            self.calculate_and_plot_2D_core()
+        finally:
+            self.is_calculating = False
+            self.calcsingle_button.setText("Calculate Image")
+            self.calcsingle_button.setEnabled(True)
+
+    def calculate_and_plot_2D_core(self):
         if self.SpectrumManager is None:
             print('No Spectrum Specified')
             self.result_label.setText('No Spectrum Specified') 
@@ -2731,6 +2754,9 @@ class XRayScatteringApp(QMainWindow):
                 }
 
                 for future in concurrent.futures.as_completed(future_to_idx):
+                    if self.abort_simulation:
+                        print("Simulation Aborted")
+                        break
                     idx = future_to_idx[future]
                     try:
                         energy_image = future.result()
@@ -3359,6 +3385,8 @@ class XRayScatteringApp(QMainWindow):
         
         # reflections for this energy
         for validreflection in reflections_chunk:
+            if self.abort_simulation:
+                return scatted_image_sum
             h,k,l = validreflection['hkl']
             multiplicity=validreflection['multiplicity']
             d_spacing = validreflection['dspacing']
@@ -4643,7 +4671,7 @@ def search_cod_fortabledata(chemical_formula):
             'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         }
 
-        response = session.post(search_url, data=form_data, headers=headers)
+        response = session.post(search_url, data=form_data, headers=headers, timeout=5)
         if response.status_code != 200:
             print(f"Failed to fetch search results. Status code: {response.status_code}")
             return []
@@ -4677,7 +4705,7 @@ def search_cod_fortabledata(chemical_formula):
             full_url = urllib.parse.urljoin(base_url, relative_url_new)
             print("Following URL:", full_url)
         
-            full_results_response = session.get(full_url, headers=headers)
+            full_results_response = session.get(full_url, headers=headers, timeout=5)
             if full_results_response.status_code != 200:
                 print(f"Failed to fetch full results. Status code: {full_results_response.status_code}")
                 exit()
