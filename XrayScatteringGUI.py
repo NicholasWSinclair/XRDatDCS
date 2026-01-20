@@ -50,8 +50,9 @@ from functools import reduce
 
 
 from emmet.core.summary import HasProps
-from PyQt5.QtGui import QPalette, QColor, QIcon
-from PyQt5.QtCore import Qt, QTimer, QSettings
+from PyQt5.QtGui import QPalette, QColor, QIcon, QCursor
+
+from PyQt5.QtCore import Qt, QTimer, QSettings, QThread, pyqtSignal
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
 except ImportError:
@@ -63,6 +64,8 @@ import h5py
 import concurrent.futures
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
 
 from scipy.fft import fft2, ifft2
 from scipy.signal import find_peaks
@@ -133,6 +136,256 @@ r0 = 2.81794032E-5 # angstroms
 JouleIneV = 6.242e+18 #eV per Joule
 seed = 328375183878393377431811483858591401665
 # material_constants_library = DabaxXraylib()
+
+
+
+class CODPingWorker(QThread):
+    connection_status = pyqtSignal(bool)
+
+    def run(self):
+        try:
+            # Ping main COD page with a short timeout
+            response = requests.get("https://www.crystallography.net/cod/", timeout=3)
+            if response.status_code == 200:
+                self.connection_status.emit(True)
+            else:
+                self.connection_status.emit(False)
+        except:
+            self.connection_status.emit(False)
+
+
+
+class CODSearchWorker(QThread):
+    search_finished = pyqtSignal(list, list) # table_rows, table_header
+    search_failed = pyqtSignal(str) # error message
+
+    def __init__(self, chemical_formula):
+        super().__init__()
+        self.chemical_formula = chemical_formula
+
+    def run(self):
+        try:
+           # call the existing search function
+           rows, header = search_cod_fortabledata(self.chemical_formula)
+           if not rows and not header:
+               self.search_failed.emit("No results found or connection failed.")
+           else:
+               self.search_finished.emit(rows, header)
+               
+        except Exception as e:
+            self.search_failed.emit(str(e))
+
+class PlotInteractionManager:
+    def __init__(self, canvas, ax, toolbar):
+        self.canvas = canvas
+        self.ax = ax
+        self.toolbar = toolbar
+        
+        # Connect events
+        self.canvas.mpl_connect('button_press_event', self.on_click)
+        self.canvas.mpl_connect('motion_notify_event', self.on_drag)
+        self.canvas.mpl_connect('button_release_event', self.on_release)
+        self.canvas.mpl_connect('scroll_event', self.on_scroll)
+        
+        # State variables
+        self.zoom_start_pixel = None
+        self.zoom_initial_xlim = None
+        self.zoom_initial_ylim = None
+        self.zoom_pivot = None
+        
+        self.pan_start = None
+        self.pan_initial_xlim = None
+        self.pan_initial_ylim = None
+        
+        self.box_zoom_start = None
+        self.box_zoom_patch = None
+
+    def check_panzoom_mode(self):
+        # If toolbar is active (zoom rect or pan/zoom), disable custom controls
+        if self.toolbar.mode != '':
+            return True
+        return False
+        
+    def on_click(self, event):
+        if self.check_panzoom_mode(): return
+        if event.inaxes != self.ax: return
+        
+        # Left Click: Box Zoom Start
+        if event.button == 1:
+            self.box_zoom_start = (event.xdata, event.ydata)
+            if self.box_zoom_patch:
+                self.box_zoom_patch.remove()
+                self.box_zoom_patch = None
+            
+            self.box_zoom_patch = Rectangle(
+                (event.xdata, event.ydata), 0, 0,
+                fill=False, edgecolor='black', linestyle='--'
+            )
+            self.ax.add_patch(self.box_zoom_patch)
+            self.canvas.draw()
+            
+        # Middle Click: Pan Init
+        elif event.button == 2:
+            self.pan_start = (event.x, event.y)
+            self.pan_initial_xlim = self.ax.get_xlim()
+            self.pan_initial_ylim = self.ax.get_ylim()
+            
+        # Right Click: Zoom Init
+        elif event.button == 3:
+            self.zoom_start_pixel = (event.x, event.y)
+            self.zoom_initial_xlim = self.ax.get_xlim()
+            self.zoom_initial_ylim = self.ax.get_ylim()
+            self.zoom_pivot = (event.xdata, event.ydata)
+
+    def on_drag(self, event):
+        if self.check_panzoom_mode(): return
+        if event.inaxes != self.ax: return
+        
+        # Left Drag: Box Zoom
+        if event.button == 1 and self.box_zoom_start is not None:
+            x0, y0 = self.box_zoom_start
+            x1, y1 = event.xdata, event.ydata
+            
+            width = x1 - x0
+            height = y1 - y0
+            
+            self.box_zoom_patch.set_width(width)
+            self.box_zoom_patch.set_height(height)
+            self.box_zoom_patch.set_xy((x0, y0))
+            self.canvas.draw()
+            
+        # Middle Drag: Pan
+        elif event.button == 2 and self.pan_start is not None:
+            dx_pix = event.x - self.pan_start[0]
+            dy_pix = event.y - self.pan_start[1]
+            
+            x_start, x_end = self.pan_initial_xlim
+            y_start, y_end = self.pan_initial_ylim
+            
+            bbox = self.ax.bbox
+            bbox_width = bbox.width
+            bbox_height = bbox.height
+            
+            scale_x = (x_end - x_start) / bbox_width
+            scale_y = (y_end - y_start) / bbox_height
+            
+            new_x0 = x_start - dx_pix * scale_x
+            new_x1 = x_end - dx_pix * scale_x
+            new_y0 = y_start - dy_pix * scale_y
+            new_y1 = y_end - dy_pix * scale_y
+            
+            self.ax.set_xlim(new_x0, new_x1)
+            self.ax.set_ylim(new_y0, new_y1)
+            self.canvas.draw()
+
+        # Right Drag: Zoom
+        elif event.button == 3 and self.zoom_start_pixel is not None:
+            dx_pix = event.x - self.zoom_start_pixel[0]
+            dy_pix = event.y - self.zoom_start_pixel[1]
+            
+            sx = 0.99 ** dx_pix 
+            sy = 0.99 ** dy_pix 
+            
+            x0, x1 = self.zoom_initial_xlim
+            y0, y1 = self.zoom_initial_ylim
+            
+            if self.zoom_pivot:
+                px, py = self.zoom_pivot
+                
+                new_x0 = px - (px - x0) * sx
+                new_x1 = px + (x1 - px) * sx
+                new_y0 = py - (py - y0) * sy
+                new_y1 = py + (y1 - py) * sy
+                
+                self.ax.set_xlim(new_x0, new_x1)
+                self.ax.set_ylim(new_y0, new_y1)
+                self.canvas.draw()
+
+    def on_release(self, event):
+        if self.check_panzoom_mode(): return
+        
+        # Left Release: Box Zoom Apply
+        if event.button == 1 and self.box_zoom_start is not None:
+            if self.box_zoom_patch:
+                self.box_zoom_patch.remove()
+                self.box_zoom_patch = None
+                
+            x0, y0 = self.box_zoom_start
+            x1, y1 = event.xdata, event.ydata
+            
+            if x1 is None or y1 is None:
+                try:
+                    inv = self.ax.transData.inverted()
+                    x1_t, y1_t = inv.transform((event.x, event.y))
+                    if x1 is None: x1 = x1_t
+                    if y1 is None: y1 = y1_t
+                except:
+                    pass
+            
+            if x1 is not None and y1 is not None:
+                new_x0, new_x1 = sorted([x0, x1])
+                new_y0, new_y1 = sorted([y0, y1])
+                
+                if new_x1 - new_x0 > 0 and new_y1 - new_y0 > 0:
+                    self.ax.set_xlim(new_x0, new_x1)
+                    self.ax.set_ylim(new_y0, new_y1)
+                    self.canvas.draw()
+            
+            self.box_zoom_start = None
+             
+        # Middle Release: Pan End
+        elif event.button == 2:
+            self.pan_start = None
+            self.pan_initial_xlim = None
+            self.pan_initial_ylim = None
+            
+        # Right Release: Zoom End
+        elif event.button == 3:
+            # Check for context menu (click without drag)
+            if self.zoom_start_pixel is not None:
+                dx = abs(event.x - self.zoom_start_pixel[0])
+                dy = abs(event.y - self.zoom_start_pixel[1])
+                if dx < 5 and dy < 5:
+                    menu = QMenu()
+                    reset_action = menu.addAction("Reset Zoom")
+                    reset_action.triggered.connect(self.reset_zoom)
+                    menu.exec_(QCursor.pos())
+
+            self.zoom_start_pixel = None
+            self.zoom_initial_xlim = None
+            self.zoom_initial_ylim = None
+            self.zoom_pivot = None
+            
+    def reset_zoom(self):
+        self.ax.autoscale(True, axis='both')
+        self.canvas.draw()
+
+
+
+    def on_scroll(self, event):
+        if self.check_panzoom_mode(): return
+        if event.inaxes != self.ax: return
+        
+        base_scale = 1.2
+        if event.button == 'up':
+            scale_factor = 1/base_scale
+        else: # 'down'
+            scale_factor = base_scale
+        
+        x0, x1 = self.ax.get_xlim()
+        y0, y1 = self.ax.get_ylim()
+        
+        px, py = event.xdata, event.ydata
+        
+        new_x0 = px - (px - x0) * scale_factor
+        new_x1 = px + (x1 - px) * scale_factor
+        new_y0 = py - (py - y0) * scale_factor
+        new_y1 = py + (y1 - py) * scale_factor
+        
+        self.ax.set_xlim(new_x0, new_x1)
+        self.ax.set_ylim(new_y0, new_y1)
+        self.canvas.draw()
+
 
 
 class XRayScatteringApp(QMainWindow):
@@ -439,8 +692,10 @@ class XRayScatteringApp(QMainWindow):
         if not self.MP_APIkeyValid:
             self.matproject_checkbox.setEnabled(False)
             self.matproject_checkbox.setToolTip("Valid API Key not found. Please configure in 'CIF Sources' menu IF you want to search Materials Project CIFs.")
+            self.matproject_checkbox.setStyleSheet("color: grey")
         else:
              self.matproject_checkbox.setToolTip("Fetch from Materials Project IF you want to search Materials Project CIFs.")
+             self.matproject_checkbox.setStyleSheet("color: white")
         hsamplespecifylayout.addWidget(self.matproject_checkbox)
         self.cod_checkbox = QCheckBox('COD')
         self.cod_checkbox.setChecked(True)
@@ -654,6 +909,8 @@ class XRayScatteringApp(QMainWindow):
         # addbutton(vlayoutbuttons,'Azim. Integration (Cake)',self.makecake)
 
         self.ax = self.plot_canvas.figure.subplots()
+        self.pim_xrd = PlotInteractionManager(self.plot_canvas, self.ax, self.toolbar)
+
         
         #### AzInt1D_Tab
         AzInt1Dlayout = QVBoxLayout()
@@ -676,6 +933,8 @@ class XRayScatteringApp(QMainWindow):
         vlayoutbuttons_1d.setAlignment(Qt.AlignTop)
         addbutton(vlayoutbuttons_1d,'Save Curve as ASCII',self.SaveAzInt1DData)
         self.ax_1d = self.plot_canvas_1d.figure.subplots()
+        self.pim_1d = PlotInteractionManager(self.plot_canvas_1d, self.ax_1d, self.toolbar_1d)
+
         
         #### AzInt2D_Tab
         AzInt2Dlayout = QVBoxLayout()
@@ -695,6 +954,8 @@ class XRayScatteringApp(QMainWindow):
         
         AzInt2Dlayout.addWidget(self.plot_canvas_2d)
         self.ax_2d = self.plot_canvas_2d.figure.subplots()
+        self.pim_2d = PlotInteractionManager(self.plot_canvas_2d, self.ax_2d, self.toolbar_2d)
+
 
         #### OtherPlots Tab
         OtherPlotslayout = QVBoxLayout()
@@ -708,6 +969,8 @@ class XRayScatteringApp(QMainWindow):
         hlayouttoolbar_other.addWidget(self.toolbar_other)
         OtherPlotslayout.addWidget(self.plot_canvas_other)
         self.ax_other = self.plot_canvas_other.figure.subplots()
+        self.pim_other = PlotInteractionManager(self.plot_canvas_other, self.ax_other, self.toolbar_other)
+
         
         
         # layout.addWidget(self.XRDImageTab_GroupBox)
@@ -741,6 +1004,11 @@ class XRayScatteringApp(QMainWindow):
             
         #### Final init:
         self.makedetectorobj('makeCsIRayonix')
+        
+        # Start COD Ping Worker
+        self.cod_ping_worker = CODPingWorker()
+        self.cod_ping_worker.connection_status.connect(self.update_cod_status)
+        self.cod_ping_worker.start()
         
     def handle_calcsingle_button(self):
         if self.is_calculating:
@@ -844,29 +1112,52 @@ class XRayScatteringApp(QMainWindow):
             print('Invalid Formula')
             return
         
-        try: 
-            table_rows,table_header = search_cod_fortabledata(formattedformula)
-            if table_rows==[]:
-                print('No Data Retrieved')
-                return
-            dictlist=readtabledata(table_rows,table_header)
+        print(f"Starting background search for {formattedformula}...")
+        self.result_label.setText(f"Searching COD for {formattedformula}...")
+        
+        self.cod_search_worker = CODSearchWorker(formattedformula)
+        self.cod_search_worker.search_finished.connect(self.on_cod_search_finished)
+        self.cod_search_worker.search_failed.connect(self.on_cod_search_failed)
+        self.cod_search_worker.start()
+        
+        
+    def update_cod_status(self, is_available):
+        if not is_available:
+            self.cod_checkbox.setChecked(False)
+            self.cod_checkbox.setEnabled(False)
+            self.cod_checkbox.setToolTip("COD unreachable")
+            self.cod_checkbox.setStyleSheet("color: grey")
+        else:
+            self.cod_checkbox.setEnabled(True)
+            self.cod_checkbox.setToolTip("Fetch from COD IF you want to search COD CIFs.")
+            self.cod_checkbox.setStyleSheet("color: white")
 
-            if dictlist==[]:
-                print('No COD records found.')
-                return
-            for el in dictlist:
-                print('-------------')
-                for key in el.keys():
-                    print(f'{key}: {el[key]}')
-        except: 
-            print('Connection Error. Perhaps COD is down?')
-            return    
-                
-                
-                
+    def on_cod_search_finished(self, rows, header):
+        # Re-enable UI or hide wait indicator if implemented
+        
+        if not rows:
+             print('No Data Retrieved')
+             self.result_label.setText('No Data Retrieved from COD')
+             return
+
+        dictlist=readtabledata(rows,header)
+
+        if dictlist==[]:
+             print('No COD records found.')
+             self.result_label.setText('No COD records found.')
+             return
+             
+        for el in dictlist:
+             print('-------------')
+             for key in el.keys():
+                 print(f'{key}: {el[key]}')
+                 
         self.matwidget_COD = MaterialTableWidget_COD(self,dictlist)
         self.matwidget_COD.show()
-        
+
+    def on_cod_search_failed(self, error_message):
+        print(f"COD Search Failed: {error_message}")
+        self.result_label.setText(f"COD Search Failed: {error_message}")
         
     def findchemical_fromMatProject(self):
         chemform = self.SpecifyChemForm_edit.text()
@@ -5237,7 +5528,8 @@ class Atom3DViewer(QMainWindow):
 class NavigationToolbar_sub(NavigationToolbar2QT):
     # only display the buttons we need
     toolitems = [t for t in NavigationToolbar2QT.toolitems if
-                 t[0] not in ('Back', 'Forward')]
+                 t[0] not in ('Back', 'Forward', 'Home')]
+
     
     
 def setFusionpalette(app):
