@@ -171,7 +171,7 @@ class FilterManager(QWidget):
         self.add_filter("Be", 1.27, '?')
         self.add_filter("Kapton Polyimide Film", 0.25, '?')
         self.add_filter("He", 300.0, '?')
-        self.add_filter("Air, Dry (near sea level)", 100.0, 0.00120479)
+        self.add_filter("Air, Dry (near sea level)", 100.0, ?)
         
     def add_filter(self, compound="", thickness=0.0, density=0.0,enable=False):
         new_row = filterRow(compound, thickness, density, self)
