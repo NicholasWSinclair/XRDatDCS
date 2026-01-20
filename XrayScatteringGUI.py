@@ -67,7 +67,8 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 
-from scipy.fft import fft2, ifft2
+from scipy.fft import fft2, ifft2, fftfreq
+
 from scipy.signal import find_peaks
 
 from matplotlib.figure import Figure
@@ -779,9 +780,32 @@ class XRayScatteringApp(QMainWindow):
         self.SampleToDetDistance_input = addedit(DetectorLayout,'Sample To Det Distance','Det Distance','200','mm',checkfunction=self.isvalidvalue)
         self.MHorizontal_input = addedit(DetectorLayout,'# Horiz. Pix (Half), 2*','M','1024','+1',checkfunction=self.isvalidvalue)
         self.NVertical_input = addedit(DetectorLayout,'# Vert. Pix (Half), 2*','N','1024','+1',checkfunction=self.isvalidvalue)
-        self.InstrFWHM_input = addedit(DetectorLayout,'Instr FWHM','Instr. FWHM','0.2','mm',checkfunction=self.isvalidvalue)
+        self.NVertical_input = addedit(DetectorLayout,'# Vert. Pix (Half), 2*','N','1024','+1',checkfunction=self.isvalidvalue)
+
+        # Manual layout for Instr FWHM to include MTF checkbox
+        hbox_fwhm = QHBoxLayout()
+        DetectorLayout.addLayout(hbox_fwhm)
+        hbox_fwhm.addWidget(QLabel('Instr FWHM'))
+        self.InstrFWHM_input = QLineEdit(self)
+        self.InstrFWHM_input.setPlaceholderText('Instr. FWHM')
+        self.InstrFWHM_input.setToolTip('Instr. FWHM')
+        self.InstrFWHM_input.setText('0.2')
+        self.InstrFWHM_input.setAlignment((Qt.AlignVCenter | Qt.AlignRight))
+        self.InstrFWHM_input.editingFinished.connect(lambda: self.isvalidvalue(self.InstrFWHM_input))
+        hbox_fwhm.addWidget(self.InstrFWHM_input)
+        hbox_fwhm.addWidget(QLabel('mm'))
+        
+        self.MeasuredMTF_checkbox = QCheckBox('Measured MTF', self)
+        self.MeasuredMTF_checkbox.setChecked(False)
+        self.MeasuredMTF_checkbox.hide() 
+        self.MeasuredMTF_checkbox.setToolTip("Apply measured MTF filter instead of Gaussian blur")
+        self.MeasuredMTF_checkbox.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.MeasuredMTF_checkbox.customContextMenuRequested.connect(self.show_mtf_context_menu)
+        hbox_fwhm.addWidget(self.MeasuredMTF_checkbox)
+
         
         self.ScintThickness_input = addedit(DetectorLayout,'Scint. Thickness','Thickness (mm(','0.08','mm',checkfunction=self.isvalidvalue)
+
         self.readnoiseoffset_input = addedit(DetectorLayout,'Read Noise offset','Read Noise Offset (cts)','11','counts',checkfunction=self.isvalidvalue)
         self.readnoiseSTD_input = addedit(DetectorLayout,'Read Noise STD Dev','Read Noise STD (cts)','2','counts',checkfunction=self.isvalidvalue)
         self.gainADUperkeV = addedit(DetectorLayout,'Gain (ADU/keV)','Gain (ADU/keV)','0.076','ADU/keV',checkfunction=self.isvalidvalue)
@@ -1970,7 +1994,44 @@ class XRayScatteringApp(QMainWindow):
         self.plot_canvas_other.draw()
         self.plottabs.setCurrentWidget(self.OtherPlots_Tab_GroupBox)
 
+
+    def show_mtf_context_menu(self, pos):
+        if self.XRDDetector.mtf_data is None:
+            return
+            
+        menu = QMenu()
+        plot_action = menu.addAction("Plot Measured MTF")
+        plot_action.triggered.connect(self.plot_measured_mtf)
+        menu.exec_(self.MeasuredMTF_checkbox.mapToGlobal(pos))
+
+    def plot_measured_mtf(self):
+        if self.XRDDetector.mtf_data is None:
+            return
+
+        lp_per_mm = self.XRDDetector.mtf_data['lp_per_mm']
+        contrast = self.XRDDetector.mtf_data['contrast']
+        
+        # interpolator
+        interp = XRDDetector.build_mtf_interpolator(lp_per_mm, contrast, zero_freq_gain=1.0)
+        
+        freqs = np.linspace(0.1, 10.0, 500)
+        mtf_vals = interp(freqs)
+        
+        self.ax_other.clear()
+        self.ax_other.plot(freqs, mtf_vals, '-', label='Interpolated MTF')
+        self.ax_other.plot(lp_per_mm, contrast, 'o', color='red', label='Measured Points')
+        
+        self.ax_other.set_title(f"Measured MTF: {self.XRDDetector.name}", color='white')
+        self.ax_other.set_xlabel("Spatial Frequency (lp/mm)", color='white')
+        self.ax_other.set_ylabel("MTF (Contrast)", color='white')
+        self.ax_other.grid(True, which='both', ls='--')
+        self.ax_other.legend()
+        
+        self.plot_canvas_other.draw()
+        self.plottabs.setCurrentWidget(self.OtherPlots_Tab_GroupBox)
+
     def makedetectorobj(self,detectorstaticmethodstring):
+
         detectorstaticmethod = getattr(XRDDetector, detectorstaticmethodstring)
         self.XRDDetector = detectorstaticmethod()
         self.loaddetector(self.XRDDetector)
@@ -2171,30 +2232,29 @@ class XRayScatteringApp(QMainWindow):
                     )
                     return
                 
-                # Extract CIF content
                 cif_content = h5f['cif_data']['cif_file_content'][()]
                 original_filename = h5f['cif_data'].attrs.get('cif_filename', 'extracted.cif')
                 
-                # Convert bytes to string if necessary
+                # convert bytes to string if necessary
                 if isinstance(cif_content, bytes):
                     cif_content = cif_content.decode('utf-8')
                 
-                # Create temporary CIF file
+                # make temporary CIF file
                 import tempfile
                 temp_dir = tempfile.gettempdir()
                 temp_cif_path = os.path.join(temp_dir, f'from_h5_{original_filename}')
                 
-                # Write CIF content to temporary file
+                # write CIF content to temporary file
                 with open(temp_cif_path, 'w', encoding='utf-8') as cif_file:
                     cif_file.write(cif_content)
                 
                 print(f"Extracted CIF from H5: {original_filename}")
                 print(f"Temporary CIF file: {temp_cif_path}")
                 
-                # Load the extracted CIF file
+                # load the extracted CIF file
                 self.load_cif(temp_cif_path)
                 
-                # Update status
+                # update status
                 self.result_label.setText(f"Loaded CIF from H5: {original_filename}")
                 
         except Exception as e:
@@ -3148,7 +3208,11 @@ class XRayScatteringApp(QMainWindow):
                         self.img = self.AttenuateNTotImage(img,energy)
                     fullimg += ADUpereV*energy*QE/DQE*rng.poisson(DQE*img) #N photons in this pixel with this particular energy
                 
-            fullimg = XRDDetector.blurbygaussian(fullimg,InstrFWHM,pixelsize)
+            if self.MeasuredMTF_checkbox.isChecked() and self.XRDDetector.mtf_data is not None:
+                fullimg = XRDDetector.apply_mtf_filter(fullimg, pixelsize, self.XRDDetector.mtf_data)
+            else:
+                fullimg = XRDDetector.blurbygaussian(fullimg,InstrFWHM,pixelsize)
+
             fullimg += readnoiseoffset + rng.poisson(np.ones_like(self.Ntotimage[0])*readnoiseSTD)
         else:
             fullimg = np.zeros_like(self.Ntotimage[0])
@@ -3163,7 +3227,12 @@ class XRayScatteringApp(QMainWindow):
                     if len(self.PostSampleFilters_GroupBox.activeAngles)>0:                        
                         self.img = self.AttenuateNTotImage(img,energy)
                     fullimg += ADUpereV*energy*QE*img #N photons in this pixel with this particular energy
-            fullimg = XRDDetector.blurbygaussian(fullimg,InstrFWHM,pixelsize)
+
+            if self.MeasuredMTF_checkbox.isChecked() and self.XRDDetector.mtf_data is not None:
+                fullimg = XRDDetector.apply_mtf_filter(fullimg, pixelsize, self.XRDDetector.mtf_data)
+            else:
+                fullimg = XRDDetector.blurbygaussian(fullimg,InstrFWHM,pixelsize)
+
         
         if self.maskfun is not None:
             try:      
@@ -3491,8 +3560,17 @@ class XRayScatteringApp(QMainWindow):
         self.readnoiseSTD_input.setText(str(XRDDetObj.ReadNoiseSTDDev))
         self.gainADUperkeV.setText(f'{XRDDetObj.GainADUperkeV:.3f}')
         
+        if XRDDetObj.mtf_data is not None:
+             self.MeasuredMTF_checkbox.show()
+             self.MeasuredMTF_checkbox.setEnabled(True)
+             self.MeasuredMTF_checkbox.setChecked(True) 
+        else:
+             self.MeasuredMTF_checkbox.setChecked(False)
+             self.MeasuredMTF_checkbox.hide()
+
         if hasattr(XRDDetObj,'maskfunction'):
             self.maskfun = XRDDetObj.maskfunction
+
         else:
             self.maskfun = None
             
@@ -4029,8 +4107,6 @@ class MaterialTableWidget_COD(QWidget):
         # Main layout
         layout = QVBoxLayout(self)
         
-
-        # Create the table widget
         self.table = QTableWidget(self)
         self.table.setColumnCount(len(dictlist[0].keys()) + 1)  # +1 for the 'Select' button
         self.table.setHorizontalHeaderLabels(['Select'] + list(dictlist[0].keys()))
@@ -4048,14 +4124,13 @@ class MaterialTableWidget_COD(QWidget):
         
         bibcol =None
         func = getattr(self, selectmethod_str)
-        # Populate the table
+
+        # populate the table
         for row, materialdict in enumerate(dictlist):
-            # Add a button in the first column
             select_button = QPushButton("Select")
             select_button.clicked.connect(lambda _, r=row: func(r))
             self.table.setCellWidget(row, 0, select_button)
             attributes = list(materialdict.keys())
-            # Add attributes to the table
             for col, attr_name in enumerate(attributes, start=1):
                 attr_value = materialdict[attr_name]
                 if isinstance(attr_value, float):
@@ -4080,7 +4155,7 @@ class MaterialTableWidget_COD(QWidget):
                 
             if bibcol is not None:
                 self.table.horizontalHeader().setSectionResizeMode(bibcol, QHeaderView.ResizeMode.ResizeToContents)
-        # Add the table to the layout
+
         layout.addWidget(self.table)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
@@ -4168,6 +4243,74 @@ class XRDDetector():
             self.ReadNoiseOffset=ReadNoiseOffset
             self.ReadNoiseSTDDev=ReadNoiseSTDDev
             self.GainADUperkeV = GainADUperkeV
+            self.mtf_data = None # Dictionary containing 'lp_per_mm' and 'contrast' arrays
+            
+    @staticmethod
+    def build_mtf_interpolator(lp_per_mm, contrast, zero_freq_gain=1.0):
+        """
+        Builds an MTF interpolation/extrapolation function f(freq_lpmm) -> MTF magnitude.
+        - Below the lowest measured point: linearly extrapolates to 0 at freq=0.
+        - Between points: linear interpolation.
+        - Above the highest measured point: linearly extrapolates to 0 at high freq.
+        """ 
+        sort_idx = np.argsort(lp_per_mm)
+        x = np.asarray(lp_per_mm, float)[sort_idx]
+        y = np.asarray(contrast, float)[sort_idx]
+
+        # Ensure DC gain (insert point at 0,1 if not present)
+        if x[0] > 0.0:
+            x = np.insert(x, 0, 0.0)
+            y = np.insert(y, 0, zero_freq_gain)
+        else:
+            y[0] = zero_freq_gain
+
+        # slope at low and high ends for linear extrapolation
+        slope_low = (y[1] - y[0]) / (x[1] - x[0])
+        slope_high = (y[-1] - y[-2]) / (x[-1] - x[-2])
+
+        def interp_freq(f):
+            f = np.asarray(f, float)
+            y_out = np.interp(f, x, y, left=np.nan, right=np.nan)
+            # below low end → linear extrapolation to 0
+            mask_low = f < x[0]
+            y_out[mask_low] = y[0] + slope_low * (f[mask_low] - x[0])
+            # above high end → extrapolate to 0
+            mask_high = f > x[-1]
+            y_out[mask_high] = y[-1] + slope_high * (f[mask_high] - x[-1])
+            # clip negative
+            return np.clip(y_out, 0.0, 1.0)
+
+        return interp_freq
+
+    @staticmethod
+    def apply_mtf_filter(image, pixel_size_mm, mtf_data, zero_freq_gain=1.0):
+        """
+        Apply an isotropic frequency-domain MTF (radially symmetric) to an image.
+        image: 2D (H,W)
+        pixel_size_mm: pixel pitch (mm/pixel).
+        mtf_data: dict with 'lp_per_mm' and 'contrast'
+        """
+        if image.ndim != 2:
+            raise ValueError("image must be 2D (H,W).")
+        
+        lp_per_mm = mtf_data['lp_per_mm']
+        contrast = mtf_data['contrast']
+        
+        H, W = image.shape
+        interp = XRDDetector.build_mtf_interpolator(np.asarray(lp_per_mm), np.asarray(contrast), zero_freq_gain)
+        
+        # Frequency grids in cycles/mm
+        fy = fftfreq(H, d=pixel_size_mm)  # cycles per mm along y
+        fx = fftfreq(W, d=pixel_size_mm)  # cycles per mm along x
+        FX, FY = np.meshgrid(fx, fy, indexing='xy')
+        FR = np.sqrt(FX**2 + FY**2)  # radial frequency (cycles/mm == lp/mm)
+        mtf_mask = interp(np.abs(FR))
+        
+        F = fft2(image.astype(np.float64, copy=False))
+        F_filtered = F * mtf_mask
+        filtered = ifft2(F_filtered).real
+        return filtered
+
             
     @staticmethod
     def makeGenericSquareDetector():
@@ -4189,7 +4332,7 @@ class XRDDetector():
             return 1.0
         
         detobj.QE_mat = 'Unobtainium'
-        detobj.QE_materialdensity = 999 #measured by Rayonix for settled screen
+        detobj.QE_materialdensity = 999 #
         detobj.QE_matthickness = 0.01 #mm
         
         detobj.QEfunc = QEfunc
@@ -4216,7 +4359,14 @@ class XRDDetector():
         detobj.QE_matthickness = 0.08 #mm
         detobj.QEfunc = XRDDetector.QEfunc_generic
         detobj.DQEfunc = XRDDetector.QEfunc_generic
+        
+        detobj.mtf_data = {
+            'lp_per_mm': np.array([1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0], dtype=float),
+            'contrast': np.array([0.462925639, 0.354203269, 0.264265083, 0.209564456, 
+                                  0.136753113, 0.065869667, 0.0686542318, 0.034659491], dtype=float)
+        }
         return detobj
+
     
     @staticmethod
     def makeIdealRayonix():
@@ -4268,6 +4418,12 @@ class XRDDetector():
         detobj.DQEfunc = XRDDetector.QEfunc_generic
         
         detobj.maskfunction = maskfun_circleinscribedinsquare
+
+        detobj.mtf_data = {
+            'lp_per_mm': np.array([1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0], dtype=float),
+            'contrast': np.array([0.2416, 0.2061, 0.151, 0.1050, 
+                                  0.0669, 0.0688, 0.0458, 0.0293], dtype=float)
+        }
         
         
         return detobj
@@ -4288,7 +4444,7 @@ class XRDDetector():
         
         detobj.name = 'Si Keck PAD'
         detobj.QE_mat = 'Si'
-        detobj.QE_materialdensity = 2.33 # estimated to make my 150 µm thick QE calc match that of Rayonix
+        detobj.QE_materialdensity = 2.33 # 
         detobj.QE_matthickness = 0.500 #mm
         '''  
     '''
