@@ -159,7 +159,6 @@ class FilterManager(QWidget):
         
         # self.filters_container.addLayout(self.labellayout)
         self.layout.addLayout(self.filters_container)
-
         self.setLayout(self.layout)
         self.activeCompounds = []
         self.activeThicknesses = []
@@ -172,7 +171,7 @@ class FilterManager(QWidget):
         self.add_filter("Be", 1.27, '?')
         self.add_filter("Kapton Polyimide Film", 0.25, '?')
         self.add_filter("He", 300.0, '?')
-        self.add_filter("C0.000124N0.755268O0.231781Ar0.012827", 100.0, 0.00120479)
+        self.add_filter("Air, Dry (near sea level)", 100.0, 0.00120479)
         
     def add_filter(self, compound="", thickness=0.0, density=0.0,enable=False):
         new_row = filterRow(compound, thickness, density, self)
@@ -302,7 +301,7 @@ if __name__ == "__main__":
     window.resize(600, 200)
     
     # Example: Adding some initial rows with values
-    window.add_filter("Air", 1, 0.02)
+    window.add_filter("Air, Dry (near sea level)", 1, 0.02)
 
     window.show()
     sys.exit(app.exec_())
