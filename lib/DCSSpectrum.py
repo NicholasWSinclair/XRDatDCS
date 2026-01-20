@@ -774,7 +774,7 @@ class DCSSpectrum(QWidget):
         self.filtermanager.add_filter("Be", 0.508+0.508+0.254,'?',enable=True)
         self.filtermanager.add_filter("Kapton Polyimide Film",0.25, '?',enable=True)
         self.filtermanager.add_filter("He", 300,'?',enable=True)
-        self.filtermanager.add_filter("C0.000124N0.755268O0.231781Ar0.012827", 100,0.00120479,enable=True)
+        self.filtermanager.add_filter("Air, Dry (near sea level)", 100,'?',enable=True)
         
 
     def makefilterGUI(self):
