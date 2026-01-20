@@ -59,6 +59,8 @@ SingleCrystalPeaks_Manual_WithStrain.py is similarly a GUI for visualizing singl
     - Linux:  sudo apt update && sudo apt install git-lfs
     - macOS: brew install git-lfs
     - Windows:	Download & Run the installer from git-lfs.com (or it's often included if you use Git for Windows).
+ 
+    - If you get an h5-related error when using the multilayer monochromator, you're probably missing the large h5 files  (pre-computed reflectivity tables for the multilayer monochromators) or they are just git lfs pointers. 
 
 ### Installation
 Create the environment:
