@@ -24,6 +24,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas, NavigationToolbar2QT
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from collections import OrderedDict
 
 import csv
@@ -871,7 +872,7 @@ class DCSSpectrum(QWidget):
         
     def plot_filter_attenuation(self, energy, attenuation):
         """Plot transmission of the current filter stack over the requested energy range."""
-        self.subwindows.append(ExtraFigureWindow(self))
+        self.subwindows.append(ExtraFigureWindow(self, enable_roi_selection=False))
         newfig = self.subwindows[-1]
         newfig.ax.set_aspect('auto')
         newfig.ax.plot(energy, attenuation, label='Filter Attenuation')
@@ -1330,10 +1331,11 @@ class ParameterEditor(QWidget):
                 setattr(self.parent_obj, param, new_value)
 
 class ExtraFigureWindow(QMainWindow):
-    def __init__(self, parent_obj):
+    def __init__(self, parent_obj, enable_roi_selection=True):
         super().__init__()
 
         self.parent_obj = parent_obj
+        self.enable_roi_selection = enable_roi_selection
         self.init_ui()
         
     def check_panzoom_mode(self):
@@ -1410,6 +1412,16 @@ class ExtraFigureWindow(QMainWindow):
         self.start_point = None  # start point for  x-range selection
         self.xdata = []
         self.ydata = []
+        
+        # Pan attributes
+        self.pan_start = None
+        self.pan_initial_xlim = None
+        self.pan_initial_ylim = None
+        
+        # Box Zoom attributes
+        self.box_zoom_start = None
+        self.box_zoom_patch = None
+        
         def on_click(event):
             """Called when the mouse button is pressed."""
             if not self.check_panzoom_mode():
@@ -1417,15 +1429,37 @@ class ExtraFigureWindow(QMainWindow):
                 if event.inaxes != self.ax:
                     return
 
-                # Left Click: Region Selection
+                # Left Click
                 if event.button == 1:
-                    self.start_point = event.xdata   
+                    if self.enable_roi_selection:
+                        # Region Selection
+                        self.start_point = event.xdata   
+                    
+                        # remove existing highlight  
+                        if self.highlight:
+                            self.highlight.remove()
+                        self.highlight = self.ax.axvspan(self.start_point, self.start_point, color='yellow', alpha=0.3)
+                        self.static_canvas.draw()
+                    else:
+                        # Box Zoom Start
+                        self.box_zoom_start = (event.xdata, event.ydata)
+                        if self.box_zoom_patch:
+                            self.box_zoom_patch.remove()
+                            self.box_zoom_patch = None
+                        
+                        # Create a rectangle patch
+                        self.box_zoom_patch = Rectangle(
+                            (event.xdata, event.ydata), 0, 0,
+                            fill=False, edgecolor='black', linestyle='--'
+                        )
+                        self.ax.add_patch(self.box_zoom_patch)
+                        self.static_canvas.draw()
                 
-                    # remove existing highlight  
-                    if self.highlight:
-                        self.highlight.remove()
-                    self.highlight = self.ax.axvspan(self.start_point, self.start_point, color='yellow', alpha=0.3)
-                    self.static_canvas.draw()
+                # Middle Click: Pan Init
+                elif event.button == 2:
+                    self.pan_start = (event.x, event.y)
+                    self.pan_initial_xlim = self.ax.get_xlim()
+                    self.pan_initial_ylim = self.ax.get_ylim()
                 
                 # Right Click: Zoom Init
                 elif event.button == 3:
@@ -1441,12 +1475,75 @@ class ExtraFigureWindow(QMainWindow):
                 if event.inaxes != self.ax:
                     return
                 
-                # Left Drag: Update Region Selection
-                if event.button == 1 and self.start_point is not None:
-                    self.highlight.remove()
-                    self.highlight = self.ax.axvspan(self.start_point, event.xdata, color='yellow', alpha=0.3)
-                    self.static_canvas.draw()
+                # Left Drag
+                if event.button == 1:
+                    if self.enable_roi_selection and self.start_point is not None:
+                        # Update Region Selection
+                        self.highlight.remove()
+                        self.highlight = self.ax.axvspan(self.start_point, event.xdata, color='yellow', alpha=0.3)
+                        self.static_canvas.draw()
+                    elif not self.enable_roi_selection and self.box_zoom_start is not None:
+                        # Update Box Zoom Rectangle
+                        x0, y0 = self.box_zoom_start
+                        x1, y1 = event.xdata, event.ydata
+                        
+                        width = x1 - x0
+                        height = y1 - y0
+                        
+                        self.box_zoom_patch.set_width(width)
+                        self.box_zoom_patch.set_height(height)
+                        self.box_zoom_patch.set_xy((x0, y0))
+                        
+                        self.static_canvas.draw()
                 
+                # Middle Drag: Pan
+                elif event.button == 2 and self.pan_start is not None:
+                    dx_pix = event.x - self.pan_start[0]
+                    dy_pix = event.y - self.pan_start[1]
+                    
+                    # Convert pixel delta to data delta
+                    # We need the axis transform to do this correctly, or approximation
+                    # Getting current diff
+                    x_start, x_end = self.pan_initial_xlim
+                    y_start, y_end = self.pan_initial_ylim
+                    
+                    # Get bbox
+                    bbox = self.ax.bbox
+                    bbox_width = bbox.width
+                    bbox_height = bbox.height
+                    
+                    # Scale factors (data per pixel)
+                    # Note: x_scale depends on log/linear, this simple approx works for linear
+                    # For robust handling including log, we might need a transform, but let's try simple first
+                    # or just use the current scale
+                    
+                    # Check if log scale to handle panning correctly? 
+                    # Simpler for now: just linear approximation or use mpl transforms.
+                    # Let's use the initial scales
+                    
+                    scale_x = (x_end - x_start) / bbox_width
+                    scale_y = (y_end - y_start) / bbox_height
+                    
+                    # For log scale, this simple subtraction doesn't work well visually 
+                    # IF user wants full pan support on log plots, it's more complex.
+                    # Assuming linear primarily or simple shift.
+                    
+                    if self.ax.get_xscale() == 'log' or self.ax.get_yscale() == 'log':
+                         # Log pan is tricky with simple deltas. 
+                         # Just stick to linear behavior logic or rely on toolbar.
+                         # Implementation below assumes linear for delta
+                         pass 
+
+                    # Inverse direction: dragging mouse right moves view left (data moves right)
+                    new_x0 = x_start - dx_pix * scale_x
+                    new_x1 = x_end - dx_pix * scale_x
+                    new_y0 = y_start - dy_pix * scale_y
+                    new_y1 = y_end - dy_pix * scale_y
+                    
+                    self.ax.set_xlim(new_x0, new_x1)
+                    self.ax.set_ylim(new_y0, new_y1)
+                    self.static_canvas.draw()
+
                 # Right Drag: Zoom
                 elif event.button == 3 and self.zoom_start_pixel is not None:
                     # Calculate drag distance in pixels
@@ -1480,42 +1577,88 @@ class ExtraFigureWindow(QMainWindow):
             """Called when the mouse button is released."""
             if not self.check_panzoom_mode():
                 
-                # Left Click Release: Finalize Selection
+                # Left Click Release
                 if event.button == 1:
-                    if self.start_point is None or event.inaxes != self.ax:
-                        return
-                    
-                    x_min = min(self.start_point, event.xdata)
-                    x_max = max(self.start_point, event.xdata)
-                    
-                    if self.xdata:
-                        print(f'From {x_min:0.3f} eV to {x_max:0.3f} eV')
-    
-                        listofpowers = ''
-                        for xvec,yvec in zip(self.xdata,self.ydata):
+                    if self.enable_roi_selection:
+                        # ROI Finalize
+                        if self.start_point is None or event.inaxes != self.ax:
+                            return
                         
-                            mask = (xvec >= x_min) & (xvec <= x_max)         
-                            x = xvec[mask]
-                            y = yvec[mask]
-                            power = trapezoid(y, x)
-                            powertot = trapezoid(yvec, xvec)
+                        x_min = min(self.start_point, event.xdata)
+                        x_max = max(self.start_point, event.xdata)
+                        
+                        if self.xdata:
+                            print(f'From {x_min:0.3f} eV to {x_max:0.3f} eV')
+        
+                            listofpowers = ''
+                            for xvec,yvec in zip(self.xdata,self.ydata):
                             
-                            photons_pereV_persec = y/x/(1.602e-19)
-                            photons_perbunch24bunch = trapezoid(photons_pereV_persec,x)/(271647*24)
-                            photons_perbunch48bunch = trapezoid(photons_pereV_persec,x)/(271647*48)
+                                mask = (xvec >= x_min) & (xvec <= x_max)         
+                                x = xvec[mask]
+                                y = yvec[mask]
+                                if len(x) > 1:
+                                    power = trapezoid(y, x)
+                                    powertot = trapezoid(yvec, xvec)
+                                    
+                                    photons_pereV_persec = y/x/(1.602e-19)
+                                    photons_perbunch24bunch = trapezoid(photons_pereV_persec,x)/(271647*24)
+                                    photons_perbunch48bunch = trapezoid(photons_pereV_persec,x)/(271647*48)
+                                    
+                                    Eperbunch_24_uJ = power/(271647*24)*1e6
+                                    Eperbunch_48_uJ = power/(271647*48)*1e6
+                                    # (70)/(24000)/(6.52e6)/(1.602e-19)
+                                    FractionOfTotal = 0
+                                    if powertot != 0:
+                                        FractionOfTotal = power/powertot
+                                    
+                                    
+                                    listofpowers=listofpowers + f'{power:0.3f} W, ph/153ns: {photons_perbunch24bunch:0.2e}({Eperbunch_24_uJ:.2f} µJ), ph/77ns: {photons_perbunch48bunch:0.2e}({Eperbunch_48_uJ:.2f} µJ), Fraction of Total: {FractionOfTotal:0.2f}'
+                            self.PowerLabel.setText(listofpowers)
+                            print(listofpowers) 
+                    
+                        # reset for next selection
+                        self.start_point = None
+
+                    else:
+                        # Box Zoom Finalize
+                        if self.box_zoom_start is None:
+                            return
+                        
+                        if self.box_zoom_patch:
+                            self.box_zoom_patch.remove()
+                            self.box_zoom_patch = None
                             
-                            Eperbunch_24_uJ = power/(271647*24)*1e6
-                            Eperbunch_48_uJ = power/(271647*48)*1e6
-                            # (70)/(24000)/(6.52e6)/(1.602e-19)
-                            FractionOfTotal = power/powertot
+                        x0, y0 = self.box_zoom_start
+                        x1, y1 = event.xdata, event.ydata
+                        
+                        # Handle release outside axes
+                        if x1 is None or y1 is None:
+                            try:
+                                inv = self.ax.transData.inverted()
+                                x1_t, y1_t = inv.transform((event.x, event.y))
+                                if x1 is None: x1 = x1_t
+                                if y1 is None: y1 = y1_t
+                            except Exception as e:
+                                print(f"Error converting coordinates: {e}")
+                                return
+                        
+                        # Use min/max to handle dragging in any direction
+                        new_x0, new_x1 = sorted([x0, x1])
+                        new_y0, new_y1 = sorted([y0, y1])
+                        
+                        # Avoid singular zoom
+                        if new_x1 - new_x0 > 0 and new_y1 - new_y0 > 0:
+                            self.ax.set_xlim(new_x0, new_x1)
+                            self.ax.set_ylim(new_y0, new_y1)
+                            self.static_canvas.draw()
                             
-                            
-                            listofpowers=listofpowers + f'{power:0.3f} W, ph/153ns: {photons_perbunch24bunch:0.2e}({Eperbunch_24_uJ:.2f} µJ), ph/77ns: {photons_perbunch48bunch:0.2e}({Eperbunch_48_uJ:.2f} µJ), Fraction of Total: {FractionOfTotal:0.2f}'
-                        self.PowerLabel.setText(listofpowers)
-                        print(listofpowers) 
-                
-                    # reset for next selection
-                    self.start_point = None
+                        self.box_zoom_start = None
+
+                # Middle Click Release: Pan Finalize
+                elif event.button == 2:
+                    self.pan_start = None
+                    self.pan_initial_xlim = None
+                    self.pan_initial_ylim = None
                 
                 # Right Click Release
                 elif event.button == 3:

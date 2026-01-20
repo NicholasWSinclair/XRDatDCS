@@ -1,10 +1,10 @@
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QHBoxLayout,
-    QCheckBox, QLineEdit, QLabel, QMessageBox, QMenuBar, QAction
+    QCheckBox, QLineEdit, QLabel, QMessageBox, QMenuBar, QAction, QMenu
 )
-from PyQt5.QtCore import QTimer
-from xoppylib.xoppy_xraylib_util import descriptor_kind_index
+from PyQt5.QtCore import QTimer, Qt
+from xoppylib.xoppy_xraylib_util import descriptor_kind_index, nist_compound_list
 import numpy as np
 
 class filterRow(QWidget):
@@ -24,6 +24,8 @@ class filterRow(QWidget):
         else:
             self.compound_edit = QLineEdit()
         self.compound_edit.setPlaceholderText("Compound")
+        self.compound_edit.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.compound_edit.customContextMenuRequested.connect(self.show_context_menu)
         self.layout.addWidget(self.compound_edit)
         
         
@@ -55,7 +57,28 @@ class filterRow(QWidget):
         self.density_edit.editingFinished.connect(lambda: parent.update_lists())
         self.checkbox.toggled.connect(lambda: parent.update_lists())
         
+        
         self.setLayout(self.layout)
+
+    def show_context_menu(self, position):
+        menu = QMenu()
+        nist_menu = menu.addMenu("NIST compounds")
+        
+        try:
+            compounds = nist_compound_list()
+            for compound in compounds:
+                action = QAction(compound, self)
+                action.triggered.connect(lambda checked, text=compound: self.set_compound(text))
+                nist_menu.addAction(action)
+        except Exception as e:
+            print(f"Error loading NIST compounds: {e}")
+
+        menu.exec_(self.compound_edit.mapToGlobal(position))
+
+    def set_compound(self, text):
+        self.compound_edit.setText(text)
+        self.density_edit.setText('?')
+        self.parent().update_lists()
         
     def isvalidvalue(self,value):
         if value=='?':
