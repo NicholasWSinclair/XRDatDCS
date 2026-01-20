@@ -55,6 +55,10 @@ SingleCrystalPeaks_Manual_WithStrain.py is similarly a GUI for visualizing singl
 
 ### Prerequisites
 *   Conda installation (e.g. miniconda or anaconda)
+*   git lfs  
+    - Linux:  sudo apt update && sudo apt install git-lfs
+    - macOS: brew install git-lfs
+    - Windows:	Download & Run the installer from git-lfs.com (or it's often included if you use Git for Windows).
 
 ### Installation
 Create the environment:
