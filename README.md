@@ -35,8 +35,7 @@ While most real materials are not ideal powders, the predicted intensities are r
 ### 3. Material & Spectrum Management
 *   **Crystal Structure Loading**:
     *   Load `.cif` files directly.
-    *   Fetch structures from **Materials Project** (requires API key).
-    *   Search and download from the **Crystallography Open Database (COD)**.
+    *   Search and download from the **Crystallography Open Database (COD)** or **Materials Project** (requires API key).
 *   **Spectrum Handling**:
     *   **Load Spectrum**: Import energy spectra from `.csv` or `.h5` files.
     *   **Calculate Spectrum**: Built-in tool to generate spectra based on experimental parameters.
