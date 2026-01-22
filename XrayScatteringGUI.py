@@ -455,6 +455,27 @@ class XRayScatteringApp(QMainWindow):
         load_sim_action.triggered.connect(self.LoadSimulation)
         file_menu.addAction(load_sim_action)
         
+        # Load STD Spectra Submenu
+        std_spectra_menu = file_menu.addMenu('Load STD Spectra')
+        std_config_dir = os.path.join(dir_path, "StandardSpectralConfigurations")
+        
+        if os.path.exists(std_config_dir):
+            h5_files = [f for f in os.listdir(std_config_dir) if f.endswith('.h5')]
+            if h5_files:
+                for h5_file in h5_files:
+                    action = QAction(h5_file, self)
+                    # Use closure to capture loop variable
+                    action.triggered.connect(lambda checked, f=h5_file: self.load_std_spectrum(os.path.join(std_config_dir, f)))
+                    std_spectra_menu.addAction(action)
+            else:
+                empty_action = QAction('(No configurations found)', self)
+                empty_action.setEnabled(False)
+                std_spectra_menu.addAction(empty_action)
+        else:
+            missing_action = QAction('(Directory missing)', self)
+            missing_action.setEnabled(False)
+            std_spectra_menu.addAction(missing_action)
+        
         
         spec_menu = menu_bar.addMenu('Spectrum')
         
@@ -1380,6 +1401,19 @@ class XRayScatteringApp(QMainWindow):
         self.matwidget = MaterialTableWidget_MatProject(self, materials, attributes, attribute_labels)
         self.matwidget.show()
         
+    def load_std_spectrum(self, filename):
+        """Loads a standard spectral configuration from the given filename."""
+        if not self.SpectrumManager:
+            self.SpectrumManager = DCSSpectrum.DCSSpectrum()
+        
+        # Bring window to front
+        self.SpectrumManager.show()
+        self.SpectrumManager.raise_()
+        self.SpectrumManager.activateWindow()
+        
+        # Load the configuration
+        self.SpectrumManager.load_config(filename)
+
     def save_poni_file(self, poni_file_name):
         """
         Save a .poni calibration file with simulation parameters.
@@ -2062,12 +2096,7 @@ class XRayScatteringApp(QMainWindow):
         # exptgeo.sampleangle_deg = 62
         # exptgeo.detdistance = 140
         
-    def showimageinnewwindow(self,img):
-        self.subwindows.append(ExtraFigureWindow(self))
-        newfig = self.subwindows[-1]
-        newfig.ax.imshow(img)
-        # newfig.ax.set_aspect(self.aspectratio)
-        newfig.show()
+
         
     def calcthetaphi_eachPixel(self,Mx,Ny,pixelsizeinmm, xcenterpix, ycenterpix, detdistinmm):
         imagecolnumbers_x = np.tile(np.arange(Mx).reshape(1, -1), (Ny, 1))
@@ -2940,6 +2969,8 @@ class XRayScatteringApp(QMainWindow):
         y = self.spec_WpereV
         dx = x[1]-x[0]
         self.num_peaks, self.peak_locs = find_peaks_in_data(x, y, height=0.001, distance=int(4000/dx))
+        print(f'Number of peaks found: {self.num_peaks}')
+        print(f'Peak locations: {self.peak_locs}')
 
         # Define EnergyBetweenPeaks for harmonic width calculation
         if self.num_peaks > 1:
@@ -3085,6 +3116,7 @@ class XRayScatteringApp(QMainWindow):
                 'y': y,
                 'EnergyBetweenPeaks': EnergyBetweenPeaks
             }
+            # print(f'Energy params.x: {energy_params['x']}, y: {energy_params['y']}, peak_locs: {energy_params['peak_locs']}, attenfactorinmm_list: {energy_params['attenfactorinmm_list']}, EnergyBetweenPeaks: {energy_params['EnergyBetweenPeaks']}')
 
             # Strategy: Parallelize over Energies (Harmonics).
             # This allows computing the Attenuation Map (heavy) only ONCE per energy thread.
@@ -3112,10 +3144,9 @@ class XRayScatteringApp(QMainWindow):
                     try:
                         energy_image = future.result()
                         self.Ntotimage[idx] += energy_image
+                        # print(f'Energy {self.peak_locs[idx]} contribution calculated, energy: {self.peak_locs[idx]} eV, total energy: {np.sum(energy_image):.4e}')
                         
-                        total_energies_done += 1
-                        # Update progress based on energies instead of reflections?
-                        # Or just pulse it?
+                        total_energies_done += 1 
                         update_progress(total_energies_done, self.num_peaks)
                         
                     except Exception as e:
@@ -3342,6 +3373,8 @@ class XRayScatteringApp(QMainWindow):
                     self.bunchfreq = 13e6 #13 MHz in 48-bunch mode
                 else:
                     self.bunchfreq = 6.5e6 #6.5 MHz in 24-bunch mode
+
+                print(f'Total Power: {np.trapz(self.spec_WpereV,self.spec_EeV)} W')
             else:
                 usefile=1
         else: 
@@ -3736,6 +3769,11 @@ class XRayScatteringApp(QMainWindow):
         x = energy_params['x']
         y = energy_params['y']
         EnergyBetweenPeaks = energy_params['EnergyBetweenPeaks']
+
+        deltaE_halfwidth = np.min([5000, EnergyBetweenPeaks]) # use a maximum of 5 keV for the energy range
+
+        
+
         
         gamma, beta, boolmask_infattenuation = attenuation_params
         
@@ -3743,12 +3781,14 @@ class XRayScatteringApp(QMainWindow):
         effectivelength_Angstrom_Map = AttenuationFactorAngledBeam2(attenlengthinmm*1000,thicknessinmm*1000,Alpharadians, self.TwoTheta_rad,self.Phi_Rad,gamma,beta,boolmask_infattenuation)
         
         
-        minE = peak_energy - EnergyBetweenPeaks/2.1
-        maxE = peak_energy + EnergyBetweenPeaks/2.1
+        minE = peak_energy - deltaE_halfwidth
+        maxE = peak_energy + deltaE_halfwidth
         wavelength = hc/peak_energy 
         
         harmonic_E = x[(x>minE)&(x<maxE)] 
         harmonic_dPdE = y[(x>minE)&(x<maxE)] 
+
+        # print(f'Harmonic sum: {np.trapz(harmonic_dPdE, harmonic_E)}')
         
         scatted_image_sum = np.zeros_like(self.TwoTheta_rad)
         
@@ -3798,9 +3838,9 @@ class XRayScatteringApp(QMainWindow):
                 TwoTheta_masked = self.TwoTheta_rad[mask]
                 
                 NperSecper2th_rad_masked = NperSecPer2th_rad_interp(TwoTheta_masked)
-                
+                # print(f'refl: {validreflection['hkl']}, sum: {np.trapz(NperSecper2th_rad_masked, TwoTheta_masked)}')
                 Nper2thetaperphi_rad_masked = NperSecper2th_rad_masked / 2/np.pi / self.bunchfreq * JouleIneV
-                
+                # print(f'sum: {np.trapz(Nper2thetaperphi_rad_masked, TwoTheta_masked)}')
                 # element-wise operations on masked arrays
                 ScatteredImageSingle_masked = (
                     Nper2thetaperphi_rad_masked * 
@@ -4680,30 +4720,7 @@ def convertspectrumRangeto2th(spec_EeV,spec_WpereV,dspacing):
     return Wper2th_rad_interp, NperSecPer2th_rad_interp
         
     
-class ExtraFigureWindow(QMainWindow):
-    def __init__(self, parent_obj):
-        super().__init__()
 
-        self.parent_obj = parent_obj
-        self.init_ui()
-        
-
-    def init_ui(self):
-        
-        self._main = QWidget()
-        self.setCentralWidget(self._main)
-        layout = QVBoxLayout(self._main)
-
-        self.static_canvas = FigureCanvas(Figure(figsize=(5, 3)))
-        layout.addWidget(NavigationToolbar_sub(self.static_canvas, self))
-        layout.addWidget(self.static_canvas)
-
-
-        self.ax = self.static_canvas.figure.subplots()
-        self.static_canvas.figure.subplots_adjust(right=0.95,top=0.95)
-        
-        # self.ax.set_aspect(self.parent_obj.aspectratio)
-        self.static_canvas.draw()
         
 def  AttenuationFactorAngledBeam2(attenlength,thickness,Alpharadians, TwothetaRadians,PhiRadians, gamma,beta,boolmask_infattenuation):
     ''''%This one is not the average attenuation (1/thickness)*Int(dz), it's the integral
@@ -5684,7 +5701,7 @@ class Atom3DViewer(QMainWindow):
 class NavigationToolbar_sub(NavigationToolbar2QT):
     # only display the buttons we need
     toolitems = [t for t in NavigationToolbar2QT.toolitems if
-                 t[0] not in ('Back', 'Forward', 'Home')]
+                 t[0] not in ('Back', 'Forward', 'Home','Save','Subplots')]
 
     
     
