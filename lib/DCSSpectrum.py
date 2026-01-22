@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QIcon
 import itertools
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QThreadPool, QRunnable, pyqtSignal, QObject
+from PyQt5.QtGui import QIcon, QCursor
 
 
 import os
@@ -363,9 +364,13 @@ class DCSSpectrum(QWidget):
             
         return found
 
-    def load_config(self):
-        options = QFileDialog.Options()
-        fileName, _ = QFileDialog.getOpenFileName(self,"Load Configuration","","HDF5 Files (*.h5)", options=options)
+    def load_config(self, fileName=None):
+        manual_load = False
+        if not fileName:
+            manual_load = True
+            options = QFileDialog.Options()
+            fileName, _ = QFileDialog.getOpenFileName(self,"Load Configuration","","HDF5 Files (*.h5)", options=options)
+            
         if fileName:
             try:
                 with h5py.File(fileName, 'r') as f:
@@ -374,15 +379,69 @@ class DCSSpectrum(QWidget):
                          QMessageBox.information(self, "Info", "No recognized configuration data found.")
                          return
                          
-                    dlg = ConfigImportDialog.ConfigImportDialog(available, self)
-                    if dlg.exec_():
-                        selected = dlg.get_selected()
-                        summary = self.load_from_h5_group(f, selected)
-                        
-                        msg = "Configuration loaded successfully."
-                        if summary:
-                            msg += f"\n\nDetails:\n{summary}"
+                    # For direct loading (filename provided), skip dialog and assume all components
+                    if not manual_load: 
+                        selected = available # Load everything available
+                    else:
+                        dlg = ConfigImportDialog.ConfigImportDialog(available, self)
+                        if dlg.exec_():
+                            selected = dlg.get_selected()
+                        else:
+                            return
+
+                    summary = self.load_from_h5_group(f, selected)
+                    
+                    # Check for pre-calculated spectrum
+                    if 'energy_spectrum' in f:
+                        spec_grp = f['energy_spectrum']
+                        if 'energy_eV' in spec_grp and 'spectral_power_W_per_eV' in spec_grp:
+                            self.energy_dat = np.array(spec_grp['energy_eV'])
+                            self.spectralpower_dat = np.array(spec_grp['spectral_power_W_per_eV'])
+                            print(f"Loaded {len(self.energy_dat)} points from energy_spectrum")
+                            
+                            # Update plots if window exists
+                            # This mimics part of CalcSpectrum but for loaded data
+                            self.subwindows.append(ExtraFigureWindow(self, windowtitle="Spectral Power Plot (Loaded)"))
+                            newfig = self.subwindows[-1]        
+                            newfig.ax.set_aspect('auto')
+                            newfig.ax.plot(self.energy_dat, self.spectralpower_dat, label='Loaded Spectrum')
+                            newfig.ax.set_xlabel('Energy (eV)', fontsize=8)
+                            newfig.ax.set_ylabel('Spectral Power (W/eV)', fontsize=8)
+                            newfig.ax.tick_params(axis='both', labelsize=8)
+                            newfig.ax.legend(fontsize=8)    
+                            newfig.show() 
+                            
+                            newfig.xdata.append(self.energy_dat)
+                            newfig.ydata.append(self.spectralpower_dat)
+                            
+                            # Calculate power stats
+                            photons_pereV_persec = self.spectralpower_dat/self.energy_dat/(1.602e-19)
+                            photons_perbunch24bunch = trapezoid(photons_pereV_persec,self.energy_dat)/(271647*24)
+                            photons_perbunch48bunch = trapezoid(photons_pereV_persec,self.energy_dat)/(271647*48)
+                            totalpower = trapezoid(self.spectralpower_dat,self.energy_dat)
+                            
+                            Eperbunch_24_uJ = totalpower/(271647*24)*1e6
+                            Eperbunch_48_uJ = totalpower/(271647*48)*1e6
+                            self.statustext.setText(f'Power: {totalpower:.3f} W, 24-bunch ph.: {photons_perbunch24bunch:.2e} ph. ({Eperbunch_24_uJ:.2f} µJ), 48-bunch ph.: {photons_perbunch48bunch:.2e} ph. ({Eperbunch_48_uJ:.2f} µJ)')
+                            
+                            if summary:
+                                summary += "\n\nAlso loaded pre-calculated 'energy_spectrum'."
+                        else:
+                             print("energy_spectrum group found but missing datasets. Calculating...")
+                             self.CalcSpectrum()
+                             if summary: summary += "\n\nCalculated new spectrum (pre-calculated data incomplete)."
+                    else:
+                        print("No energy_spectrum group found. Calculating...")
+                        self.CalcSpectrum()
+                        if summary: summary += "\n\nCalculated new spectrum."
+
+                    msg = "Configuration loaded successfully."
+                    if summary:
+                        msg += f"\n\nDetails:\n{summary}"
+                    
+                    if manual_load:
                         QMessageBox.information(self, "Success", msg)
+                        
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load configuration: {e}")
 
@@ -551,7 +610,17 @@ class DCSSpectrum(QWidget):
     def closeEvent(self, event):
         for wins in self.subwindows:
             if wins:
-                wins.close()                 
+                wins.close()
+                
+        # Close child GUIs if they are open
+        if self.mirrormanager and hasattr(self.mirrormanager, 'close'):
+            self.mirrormanager.close()
+            
+        if self.filtermanager and hasattr(self.filtermanager, 'close'):
+            self.filtermanager.close()
+            
+        if self.multilayerconfig and hasattr(self.multilayerconfig, 'close'):
+            self.multilayerconfig.close()                 
         
     def openMultilayerConfig(self):
         if not self.multilayerconfig:
@@ -652,7 +721,7 @@ class DCSSpectrum(QWidget):
         
         edat,specpower0 = undulatorcalc(UndulatorConfig,slitcenter_h,slitcenter_v,slitsize_h,slitsize_v)
              
-        self.subwindows.append(ExtraFigureWindow(self))
+        self.subwindows.append(ExtraFigureWindow(self,windowtitle="Spectral Power Plot"))
         
         pltlist=[]
         newfig = self.subwindows[-1]        
@@ -863,8 +932,8 @@ class DCSSpectrum(QWidget):
         
 
         
-    def plotinnewwindow(self,x,y):
-        self.subwindows.append(ExtraFigureWindow(self))
+    def plotinnewwindow(self,x,y, windowtitle="Plot"):
+        self.subwindows.append(ExtraFigureWindow(self,windowtitle=windowtitle))
         newfig = self.subwindows[-1]
         newfig.ax.plot(x,y)
         newfig.ax.set_aspect('auto')
@@ -872,7 +941,7 @@ class DCSSpectrum(QWidget):
         
     def plot_filter_attenuation(self, energy, attenuation):
         """Plot transmission of the current filter stack over the requested energy range."""
-        self.subwindows.append(ExtraFigureWindow(self, enable_roi_selection=False))
+        self.subwindows.append(ExtraFigureWindow(self, enable_roi_selection=False,windowtitle="Filter Attenuation"))
         newfig = self.subwindows[-1]
         newfig.ax.set_aspect('auto')
         newfig.ax.plot(energy, attenuation, label='Filter Attenuation')
@@ -1330,9 +1399,16 @@ class ParameterEditor(QWidget):
                 new_value = float(edit_box.text())
                 setattr(self.parent_obj, param, new_value)
 
+class NavigationToolbar_sub(NavigationToolbar2QT):
+    # only display the buttons we need
+    toolitems = [t for t in NavigationToolbar2QT.toolitems if
+                 t[0] not in ('Back', 'Forward', 'Home','Save','Subplots')]
+
 class ExtraFigureWindow(QMainWindow):
-    def __init__(self, parent_obj, enable_roi_selection=True):
+
+    def __init__(self, parent_obj, enable_roi_selection=True,windowtitle="Plot"):
         super().__init__()
+        self.windowtitle = windowtitle
 
         self.parent_obj = parent_obj
         self.enable_roi_selection = enable_roi_selection
@@ -1344,18 +1420,50 @@ class ExtraFigureWindow(QMainWindow):
         else:
             return 0
         
+    def show_mouse_help(self):
+        msg = QMessageBox()
+        msg.setWindowTitle("Mouse Interactions")
+        msg.setIcon(QMessageBox.Information)
+        
+        text = "<b>Mouse Interactions:</b><br><ul>"
+        
+        if self.enable_roi_selection:
+            text += "<li><b>Left Click & Drag:</b> Select Region of Interest for power and photon number calculations</li>"
+        else:
+            text += "<li><b>Left Click & Drag:</b> Box Zoom</li>"
+            
+        text += "<li><b>Right Click & Drag:</b> Dynamic Zoom (drag right/up to zoom in, left/down to zoom out)</li>"
+        text += "<li><b>Middle Click & Drag:</b> Pan</li>"
+        text += "<li><b>Scroll Wheel:</b> Zoom In/Out (centered on cursor)</li>"
+        text += "<li><b>Right Click (No Drag):</b> Context Menu (Reset Zoom)</li>"
+        text += "</ul>"
+        
+        msg.setText(text)
+        msg.exec_()
+        
 
     def init_ui(self):
         
         self._main = QWidget()
-        self.setWindowTitle("Plot")
+        self.setWindowTitle(self.windowtitle)
         self.setCentralWidget(self._main)
         layout = QVBoxLayout(self._main)
 
+        # Menu Bar
+        self.menu_bar = QMenuBar(self)
+        self.setMenuBar(self.menu_bar)
+        
+        # Help Menu
+        help_menu = self.menu_bar.addMenu('Help')
+        mouse_help_action = QAction('Mouse Interactions', self)
+        mouse_help_action.triggered.connect(self.show_mouse_help)
+        help_menu.addAction(mouse_help_action)
+
         self.static_canvas = FigureCanvas(Figure(figsize=(5, 4)))
-        self.toolbar = NavigationToolbar2QT(self.static_canvas, self)
+        self.toolbar = NavigationToolbar_sub(self.static_canvas, self)
         
         # Create a horizontal layout for toolbar and options
+
         toolbar_row = QHBoxLayout()
         toolbar_row.addWidget(self.toolbar)
         
@@ -1397,6 +1505,10 @@ class ExtraFigureWindow(QMainWindow):
         self.ax.tick_params(axis='both', colors='black')
         self.ax.xaxis.label.set_color('black')
         self.ax.yaxis.label.set_color('black')      
+
+        def format_coord(x, y):
+            return f'{x:.0f} eV: {y:.4f} W/eV'
+        self.ax.format_coord = format_coord
         # self.ax.set_aspect(self.parent_obj.aspectratio)
         self.static_canvas.draw()
         
@@ -1661,7 +1773,18 @@ class ExtraFigureWindow(QMainWindow):
                     self.pan_initial_ylim = None
                 
                 # Right Click Release
+                # Right Click Release
                 elif event.button == 3:
+                     # Check for context menu (click without drag)
+                     if self.zoom_start_pixel is not None:
+                         dx = abs(event.x - self.zoom_start_pixel[0])
+                         dy = abs(event.y - self.zoom_start_pixel[1])
+                         if dx < 5 and dy < 5:
+                             menu = QMenu()
+                             reset_action = menu.addAction("Reset Zoom")
+                             reset_action.triggered.connect(self.reset_zoom)
+                             menu.exec_(QCursor.pos())
+
                      self.zoom_start_pixel = None
                      self.zoom_initial_xlim = None
                      self.zoom_initial_ylim = None
@@ -1669,7 +1792,6 @@ class ExtraFigureWindow(QMainWindow):
 
         def on_scroll(event):
             if not self.check_panzoom_mode() and event.inaxes == self.ax:
-                 # Zoom Factor
                 base_scale = 1.2
                 if event.button == 'up':
                     scale_factor = 1/base_scale
@@ -1699,6 +1821,12 @@ class ExtraFigureWindow(QMainWindow):
         self.static_canvas.mpl_connect('scroll_event', on_scroll)
         
         plt.show()
+
+    def reset_zoom(self):
+        self.ax.autoscale(True, axis='both')
+        self.static_canvas.draw()
+                
+
 
     def update_scales(self):
         if self.logx_cb.isChecked():
