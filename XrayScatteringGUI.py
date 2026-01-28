@@ -2872,7 +2872,7 @@ class XRayScatteringApp(QMainWindow):
         x = self.spec_EeV
         y = self.spec_WpereV
         dx = x[1]-x[0]
-        self.num_peaks, self.peak_locs = find_peaks_in_data(x, y, height=0.00001, distance=int(4000/dx))
+        self.num_peaks, self.peak_locs = find_peaks_in_data(x, y, height=0.001, distance=int(4000/dx))
         highestEpeak = np.max(self.peak_locs)
         
         # Callback to update progress bar
@@ -2882,6 +2882,8 @@ class XRayScatteringApp(QMainWindow):
             self.progress_bar.setValue(progress)
             QApplication.processEvents() 
         
+        
+        offset = 0
         for energy in self.peak_locs:
             theta_max = 45.0  # Maximum two-theta in degrees
             wavelength = hc / energy  # Energy (eV) to wavelength (Å)
@@ -2917,12 +2919,14 @@ class XRayScatteringApp(QMainWindow):
             
             
             # self.ax.plot(two_theta_sorted, structure_factors_sorted*300000, 'o')
-            ax.plot(angles, xrdplot, '-')
+            ax.plot(angles, xrdplot + offset, '-', label = f'{energy/1000.:.3f} keV')
+            offset += 1.1
             # self.ax.plot(angles, xrdplot_tot, '-')
             
         ax.set_title(f'XRD Intensity vs 2Θ: {self.structure_data.get_chemical_formula()}',color='white')
         ax.set_xlabel("Two-Theta (degrees)",color='white')
-        ax.set_ylabel("XRD Intensity",color='white')
+        ax.set_ylabel("XRD Intensity (Offset)",color='white')
+        ax.legend()
         ax.grid(True)
         self.plot_canvas_other.draw()
         
